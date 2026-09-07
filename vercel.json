@@ -2,41 +2,6 @@
   "buildCommand": "npm run build",
   "outputDirectory": ".next",
   "framework": "nextjs",
-  "env": {
-    "API_BASE_URL": {
-      "required": true,
-      "description": "ROADNET API base URL (https://apex-prod-eu-integration.eu.roadnet.com/integration)"
-    },
-    "CSRF_SECRET": {
-      "required": true,
-      "description": "CSRF token secret (generate with: openssl rand -hex 32)"
-    },
-    "UPSTASH_REDIS_REST_URL": {
-      "required": false,
-      "description": "Upstash Redis REST endpoint URL (for distributed rate limiting)"
-    },
-    "UPSTASH_REDIS_REST_TOKEN": {
-      "required": false,
-      "description": "Upstash Redis authentication token"
-    },
-    "AIRTABLE_TOKEN": {
-      "required": false,
-      "description": "Airtable personal access token for address verification"
-    },
-    "AIRTABLE_BASE_ID": {
-      "required": false,
-      "description": "Airtable base ID"
-    },
-    "AIRTABLE_TABLE_ID": {
-      "required": false,
-      "description": "Airtable table ID"
-    },
-    "FORCE_HTTPS": {
-      "required": false,
-      "default": "true",
-      "description": "Force HTTPS for secure cookies"
-    }
-  },
   "headers": [
     {
       "source": "/(.*)",
