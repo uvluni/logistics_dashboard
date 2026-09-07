@@ -141,7 +141,9 @@
       "Bash(python3 \"C:\\\\Users\\\\yuval\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-yuval-OneDrive---Aman-Computers-Claude-Aman-Code-routes-report\\\\4d733b18-6726-490d-b967-84274ee3f689\\\\scratchpad\\\\process_july_data.py\")",
       "Bash(node \"C:\\\\Users\\\\yuval\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-yuval-OneDrive---Aman-Computers-Claude-Aman-Code-routes-report\\\\4d733b18-6726-490d-b967-84274ee3f689\\\\scratchpad\\\\process_json.js\")",
       "Bash(\nls -lh /tmp/roadnet_complete_dump.json 2>/dev/null || echo \"File not in /tmp\"\nls -lh /c/tmp/roadnet_complete_dump.json 2>/dev/null || echo \"File not in /c/tmp\"\nls -lh /tmp/day_01.json 2>/dev/null | head -1\n)",
-      "Bash(\n# Copy the raw consolidated file to scratchpad where Node can access it\ncp /tmp/roadnet_complete_dump.json \"C:\\\\Users\\\\yuval\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-yuval-OneDrive---Aman-Computers-Claude-Aman-Code-routes-report\\\\4d733b18-6726-490d-b967-84274ee3f689\\\\scratchpad\\\\raw_data.json\"\n\necho \"File copied to scratchpad\"\nls -lh \"C:\\\\Users\\\\yuval\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-yuval-OneDrive---Aman-Computers-Claude-Aman-Code-routes-report\\\\4d733b18-6726-490d-b967-84274ee3f689\\\\scratchpad\\\\raw_data.json\"\n)"
+      "Bash(\n# Copy the raw consolidated file to scratchpad where Node can access it\ncp /tmp/roadnet_complete_dump.json \"C:\\\\Users\\\\yuval\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-yuval-OneDrive---Aman-Computers-Claude-Aman-Code-routes-report\\\\4d733b18-6726-490d-b967-84274ee3f689\\\\scratchpad\\\\raw_data.json\"\n\necho \"File copied to scratchpad\"\nls -lh \"C:\\\\Users\\\\yuval\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-yuval-OneDrive---Aman-Computers-Claude-Aman-Code-routes-report\\\\4d733b18-6726-490d-b967-84274ee3f689\\\\scratchpad\\\\raw_data.json\"\n)",
+      "Bash(git push *)",
+      "Bash(git pull *)"
     ]
   }
 }
