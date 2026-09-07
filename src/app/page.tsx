@@ -196,7 +196,7 @@ export default function Home() {
       if (res.ok) {
         setIsLoggedIn(true);
         setPassword(''); // Clear password after successful login
-        // Don't load routes here - wait for integration selection first
+        setSelectedIntegration('ROADNET'); // Auto-select ROADNET on login
       } else {
         setError(t('auth.error', language));
       }
