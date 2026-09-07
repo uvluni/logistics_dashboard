@@ -146,7 +146,15 @@
       "Bash(git pull *)",
       "mcp__claude-in-chrome__tabs_context_mcp",
       "mcp__claude-in-chrome__navigate",
-      "mcp__claude-in-chrome__computer"
+      "mcp__claude-in-chrome__computer",
+      "Bash(git fetch *)",
+      "Bash(git rm *)",
+      "PowerShell(scoop install cloudflared)",
+      "PowerShell(Get-Content \"$env:TEMP\\\\cloudflared.log\" -Tail 50)",
+      "Bash(taskkill /F /IM cloudflared.exe)",
+      "Bash(npm list *)",
+      "Bash(lt --port 3000)",
+      "PowerShell(npx -y lt@latest --port 3000)"
     ]
   }
 }
