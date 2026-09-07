@@ -3,7 +3,7 @@
   "outputDirectory": ".next",
   "framework": "nextjs",
   "env": {
-    "NEXT_PUBLIC_API_BASE_URL": {
+    "API_BASE_URL": {
       "required": true,
       "description": "ROADNET API base URL (https://apex-prod-eu-integration.eu.roadnet.com/integration)"
     },
