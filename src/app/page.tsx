@@ -1298,8 +1298,8 @@ export default function Home() {
               opacity: 0.5,
               boxShadow: 'none'
             }}
-            onMouseEnter={(e) => e.target.style.opacity = '1'}
-            onMouseLeave={(e) => e.target.style.opacity = '0.5'}
+            onMouseEnter={(e) => (e.target as HTMLElement).style.opacity = '1'}
+            onMouseLeave={(e) => (e.target as HTMLElement).style.opacity = '0.5'}
             title="Scroll to top"
           >
             ↑
