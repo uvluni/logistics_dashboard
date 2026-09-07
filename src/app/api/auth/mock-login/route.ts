@@ -25,10 +25,9 @@ export async function POST(request: NextRequest) {
     }
 
     const res = NextResponse.json({ token: 'mock-token-dev', success: true });
-    const isSecure = process.env.FORCE_HTTPS === 'true' || process.env.NODE_ENV !== 'development';
     res.cookies.set('roadnet_token', 'mock-token-dev', {
       httpOnly: true,
-      secure: isSecure,
+      secure: true,
       sameSite: 'strict',
       maxAge: 86400,
       path: '/',
