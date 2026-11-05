@@ -7,6 +7,7 @@ import * as XLSX from 'xlsx';
 import KPICard from '@/components/KPICard';
 import DashboardSummary from '@/components/DashboardSummary';
 import Navbar from '@/components/Navbar';
+import PlanVsActual from '@/components/PlanVsActual';
 import { RouteKPI, DashboardSummary as Summary } from '@/types';
 import { useLanguage } from '@/context/LanguageContext';
 import { t } from '@/i18n/translations';
@@ -82,6 +83,7 @@ export default function Home() {
   const [validationMessage, setValidationMessage] = useState('');
   const [validationType, setValidationType] = useState<'google' | 'rodnet' | null>(null);
   const [toastMessage, setToastMessage] = useState('');
+  const [view, setView] = useState<'plan' | 'actual'>('plan');
   const datePickerRef = useRef<DatePicker>(null);
   const insightsRef = useRef<HTMLDivElement>(null);
   const airtableRef = useRef<HTMLDivElement>(null);
@@ -1024,13 +1026,28 @@ export default function Home() {
   return (
     <div style={{ backgroundColor: 'var(--bg-primary)', minHeight: '100vh' }}>
       <Navbar />
-      <div style={{ position: 'sticky', top: 60, backgroundColor: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-primary)', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', zIndex: 9, padding: '8px 32px', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '8px' }}>
+      <div style={{ position: 'sticky', top: 60, backgroundColor: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-primary)', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', zIndex: 9, padding: '8px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap', direction: isRTL ? 'rtl' : 'ltr' }}>
+        <div role="tablist" style={{ display: 'flex', gap: '4px' }}>
+          {(['plan', 'actual'] as const).map((v) => (
+            <button
+              key={v}
+              role="tab"
+              aria-selected={view === v}
+              onClick={() => setView(v)}
+              style={{ padding: '8px 16px', borderRadius: '6px', fontWeight: 600, fontSize: '14px', cursor: 'pointer', transition: 'all 0.2s', border: '1px solid var(--border-primary)', backgroundColor: view === v ? 'var(--color-blue)' : 'transparent', color: view === v ? 'white' : 'var(--text-secondary)' }}
+            >
+              {t(v === 'plan' ? 'nav.plan' : 'nav.plan_vs_actual', language)}
+            </button>
+          ))}
+        </div>
         <button onClick={handleLogout} style={{ padding: '8px 16px', borderRadius: '6px', fontWeight: 600, transition: 'all 0.2s', backgroundColor: '#dc2626', color: 'white', border: 'none', cursor: 'pointer', fontSize: '14px' }}>
           {t('auth.logout', language)}
         </button>
       </div>
 
       <div style={{ maxWidth: '100%', margin: '0 auto', padding: '32px' }}>
+        {view === 'actual' && <PlanVsActual sessionDate={selectedDate} onDateChange={setSelectedDate} />}
+        {view === 'plan' && (<>
         <div style={{ backgroundColor: 'var(--bg-secondary)', borderRadius: '6px', border: '1px solid var(--border-primary)', padding: '32px', marginBottom: '32px' }}>
           <h2 style={{ fontSize: '20px', fontWeight: 600, marginBottom: '24px', color: 'var(--text-primary)', textAlign: isRTL ? 'right' : 'left' }}>{t('dashboard.planning_header', language)} - {selectedDate ? formatDateForDisplay(selectedDate) : '...'}</h2>
           <div>
@@ -1159,6 +1176,7 @@ export default function Home() {
             </div>
           )}
         </div>
+        </>)}
 
         {loadingAirtable && (
           <div className="text-center text-gray-400 text-sm py-2 fade-in-up">{t('dashboard.loading_addresses', language)}</div>
