@@ -295,7 +295,11 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      const weightUtilization = vehicleCapacity > 0 ? Math.round((totalWeight / vehicleCapacity) * 100) : 0;
+      // A multi-round route reloads at the depot, so measure it against one truckload
+      // per round (average load per round). Comparing the whole day's weight to a single
+      // truckload reported 150%+ for normal 2-round routes. Overload is checked per round below.
+      const roundCount = Math.max(rounds.length, 1);
+      const weightUtilization = vehicleCapacity > 0 ? Math.round((totalWeight / (vehicleCapacity * roundCount)) * 100) : 0;
       const timeUtilization = Math.round((totalDurationMinutes / normalWorkDayMinutes) * 100);
 
       // Check if any round exceeds weight capacity
