@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyCSRFToken } from '@/lib/csrf';
+import { shouldUseSecureCookie } from '@/lib/secureCookie';
 
 export async function POST(request: NextRequest) {
   try {
@@ -56,7 +57,7 @@ export async function POST(request: NextRequest) {
     const res = NextResponse.json(data);
     res.cookies.set('roadnet_token', data.token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production' || process.env.FORCE_HTTPS === 'true',
+      secure: shouldUseSecureCookie(request),
       sameSite: 'strict',
       maxAge: 86400,
     });

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { generateCSRFToken } from '@/lib/csrf';
+import { shouldUseSecureCookie } from '@/lib/secureCookie';
 
 export async function GET(request: NextRequest) {
   try {
@@ -10,7 +11,7 @@ export async function GET(request: NextRequest) {
     // Store token in httpOnly cookie for validation
     res.cookies.set('csrf_token', token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production' || process.env.FORCE_HTTPS === 'true',
+      secure: shouldUseSecureCookie(request),
       sameSite: 'strict',
       maxAge: 3600, // 1 hour
       path: '/',
