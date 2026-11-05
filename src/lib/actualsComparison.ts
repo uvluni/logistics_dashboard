@@ -4,9 +4,31 @@
 
 export type ActualStatus = 'not_started' | 'not_started_overdue' | 'in_progress' | 'suspended' | 'completed';
 
+export type StopStatus = 'completed' | 'at_stop' | 'late' | 'upcoming';
+
+export interface StopActual {
+  sequence: number;
+  customer: string;
+  city: string;
+  status: StopStatus; // late = planned arrival passed, not reached yet
+  plannedArrival: number | null;
+  actualArrival: number | null;
+  arrivalDelayMinutes: number | null;
+  plannedServiceMinutes: number | null;
+  minutesAtStop: number | null; // while at_stop: time since arrival
+  weightKg: number;
+}
+
 export interface RouteActual {
   routeId: string;
   driverName: string;
+  vehicle: string;
+  workDayMinutes: number;
+  projectedWorkMinutes: number | null; // start (actual, or now for overdue) -> projected end
+  plannedWeightKg: number;
+  deliveredWeightKg: number;
+  plannedDistanceKm: number | null;
+  stops: StopActual[];
   routeState: string;
   status: ActualStatus;
   plannedStart: number | null;
@@ -54,7 +76,40 @@ const parse = (v: any): number | null => {
 const mins = (a: number | null, b: number | null) => (a != null && b != null ? Math.round((a - b) / 60000) : null);
 const isReal = (v: any) => !!v?.value && v.dataSource !== 'Projected';
 
+/** Same rule as the planning view: Friday is a 5-hour day. */
+function workDayFor(sessionDate: string): number {
+  const [y, m, d] = sessionDate.split('-').map(Number);
+  return new Date(y, m - 1, d).getDay() === 5 ? 300 : 540;
+}
+
+function buildStops(stops: any[], now: number): StopActual[] {
+  return stops
+    .filter((s) => s.stopType === 'ServiceableStop')
+    .map((s) => {
+      const i = s.serviceableStopInfo || {};
+      const pa = parse(i.plannedArrivalTimestamp);
+      const pd = parse(i.plannedDepartureTimestamp);
+      const aa = isReal(i.arrivalTimestamp) ? parse(i.arrivalTimestamp) : null;
+      const done = isReal(i.departureTimestamp);
+      const status: StopStatus = done ? 'completed' : aa != null ? 'at_stop' : pa != null && pa <= now ? 'late' : 'upcoming';
+      return {
+        sequence: s.plannedSequenceNormalized ?? s.sequence ?? 0,
+        customer: (i.locationInfo?.description || '').trim(),
+        city: (i.locationInfo?.address?.stateOrProvince || '').trim(),
+        status,
+        plannedArrival: pa,
+        actualArrival: aa,
+        arrivalDelayMinutes: aa != null ? mins(aa, pa) : null,
+        plannedServiceMinutes: mins(pd, pa),
+        minutesAtStop: status === 'at_stop' ? mins(now, aa) : null,
+        weightKg: Array.isArray(i.plannedQuantities) ? i.plannedQuantities[0] || 0 : 0,
+      };
+    })
+    .sort((a, b) => a.sequence - b.sequence);
+}
+
 export function compareRouteActuals(items: any[], sessionDate: string, now = Date.now()): ActualsResponse {
+  const workDayMinutes = workDayFor(sessionDate);
   let lastCaptured: number | null = null;
   const see = (v: any) => {
     if (isReal(v)) {
@@ -100,9 +155,19 @@ export function compareRouteActuals(items: any[], sessionDate: string, now = Dat
         ? plannedEnd + startDelay * 60000
         : parse(r.timestamps?.completed) ?? plannedEnd;
 
+    const stopList = buildStops(stops, now);
+    const workStart = actualStart ?? (status === 'not_started_overdue' ? now : plannedStart);
+
     return {
       routeId: r.identity?.identifier || '',
       driverName: r.workersInfo?.[0]?.name?.firstName || '',
+      vehicle: r.equipmentInfo?.[0]?.specificEquipmentInfo?.identity?.identifier || '',
+      workDayMinutes,
+      projectedWorkMinutes: mins(projectedEnd, workStart),
+      plannedWeightKg: stopList.reduce((a, s) => a + s.weightKg, 0),
+      deliveredWeightKg: stopList.filter((s) => s.status === 'completed').reduce((a, s) => a + s.weightKg, 0),
+      plannedDistanceKm: r.plannedTotals?.distance?.value != null ? Math.round(r.plannedTotals.distance.value) : null,
+      stops: stopList,
       routeState: state,
       status,
       plannedStart,

@@ -58,6 +58,8 @@ export async function GET(request: NextRequest) {
       ...r,
       routeId: sanitizeString(r.routeId, 50),
       driverName: sanitizeDriverName(r.driverName),
+      vehicle: sanitizeString(r.vehicle, 50),
+      stops: r.stops.map((s) => ({ ...s, customer: sanitizeString(s.customer, 120), city: sanitizeString(s.city, 60) })),
     }));
 
     return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } });

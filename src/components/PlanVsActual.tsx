@@ -3,46 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLanguage } from '@/context/LanguageContext';
 import { t } from '@/i18n/translations';
-import type { ActualsResponse, RouteActual, ActualStatus } from '@/lib/actualsComparison';
-import { LATE_THRESHOLD_MIN } from '@/lib/actualsComparison';
+import type { ActualsResponse } from '@/lib/actualsComparison';
+import { GROUP_COLOR, groupOf, signed, sortByUrgency, type Group } from '@/lib/pvaGroups';
+import DriverDayCards from '@/components/DriverDayCards';
 
 const REFRESH_MS = 2 * 60 * 1000;
 const TIME_ZONE = 'Asia/Jerusalem';
-
-type Group = 'suspended' | 'overdue' | 'late' | 'on_track' | 'ahead' | 'not_started' | 'completed';
-
-const GROUP_ORDER: Group[] = ['suspended', 'overdue', 'late', 'on_track', 'ahead', 'not_started', 'completed'];
-
-const GROUP_COLOR: Record<Group, string> = {
-  suspended: '#8250df',
-  overdue: '#dc2626',
-  late: '#ea580c',
-  on_track: '#16a34a',
-  ahead: '#0969da',
-  not_started: '#768390',
-  completed: '#768390',
-};
-
-function groupOf(r: RouteActual): Group {
-  const map: Record<ActualStatus, Group | null> = {
-    suspended: 'suspended',
-    not_started_overdue: 'overdue',
-    not_started: 'not_started',
-    completed: 'completed',
-    in_progress: null,
-  };
-  const g = map[r.status];
-  if (g) return g;
-  const dev = r.endDeviationMinutes ?? 0;
-  if (dev >= LATE_THRESHOLD_MIN) return 'late';
-  if (dev <= -LATE_THRESHOLD_MIN) return 'ahead';
-  return 'on_track';
-}
-
-function signed(n: number | null): string {
-  if (n == null) return '';
-  return n > 0 ? `+${n}` : `${n}`;
-}
 
 export default function PlanVsActual({ sessionDate, onDateChange }: { sessionDate: string; onDateChange: (d: string) => void }) {
   const { language, isRTL } = useLanguage();
@@ -82,14 +48,7 @@ export default function PlanVsActual({ sessionDate, onDateChange }: { sessionDat
 
   const rows = useMemo(() => {
     if (!data) return [];
-    return data.routes
-      .map((r) => ({ r, g: groupOf(r) }))
-      .sort((a, b) => {
-        const d = GROUP_ORDER.indexOf(a.g) - GROUP_ORDER.indexOf(b.g);
-        if (d) return d;
-        if (a.g === 'ahead') return (a.r.endDeviationMinutes ?? 0) - (b.r.endDeviationMinutes ?? 0);
-        return (b.r.endDeviationMinutes ?? b.r.startDelayMinutes ?? 0) - (a.r.endDeviationMinutes ?? a.r.startDelayMinutes ?? 0);
-      });
+    return sortByUrgency(data.routes.map((r) => ({ r, g: groupOf(r) as Group })));
   }, [data]);
 
   // Shared time axis, rounded out to whole hours.
@@ -186,6 +145,9 @@ export default function PlanVsActual({ sessionDate, onDateChange }: { sessionDat
               `${t('pva.tile.stops_sub', language)} ${tot.stopsCompleted}/${tot.stopsPlanned}`
             )}
           </div>
+
+          {/* Driver workday cards */}
+          <DriverDayCards rows={rows} hm={hm} />
 
           {/* Timeline */}
           <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-primary)', borderRadius: 8, padding: '16px 20px' }}>
