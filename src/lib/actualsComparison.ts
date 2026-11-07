@@ -74,7 +74,9 @@ const parse = (v: any): number | null => {
   return Number.isNaN(t) ? null : t;
 };
 const mins = (a: number | null, b: number | null) => (a != null && b != null ? Math.round((a - b) / 60000) : null);
-const isReal = (v: any) => !!v?.value && v.dataSource !== 'Projected';
+// RNA marks values it computed itself as 'Projected' (live estimate) or
+// 'AssumedFromProjection' (filled in when it closes a route nobody reported). Neither is a field event.
+const isReal = (v: any) => !!v?.value && v.dataSource !== 'Projected' && v.dataSource !== 'AssumedFromProjection';
 
 /** Same rule as the planning view: Friday is a 5-hour day. */
 function workDayFor(sessionDate: string): number {
