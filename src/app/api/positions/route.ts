@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rateLimiter';
 import { sanitizeDriverName, sanitizeString } from '@/lib/sanitize';
-import { buildPositions, gpsWindow, type DeliveredLookup } from '@/lib/driverPositions';
-import { deliveredTimes } from '@/lib/soapDelivered';
+import { buildPositions, gpsWindow } from '@/lib/driverPositions';
 
 // GET /api/positions?sessionDate=yyyy-MM-dd            -> routes of the day (for the picker)
 // GET /api/positions?sessionDate=yyyy-MM-dd&routeId=1005 -> where the driver was (truck GPS) at each
-//     arrival / delivered / departure report of that route.
+//     arrival / departure report of that route.
 export async function GET(request: NextRequest) {
   try {
     const token = request.cookies.get('roadnet_token')?.value;
@@ -66,22 +65,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Per-order "delivered" times, when ROADNET records them (SOAP, this route only).
-    let delivered: DeliveredLookup | null = null;
-    let note: string | null = 'no_delivered';
-    try {
-      delivered = new Map();
-      for (const o of await deliveredTimes(baseUrl, token, Number(r.identity.entityKey), Number(r.regionIdentity?.entityKey))) {
-        const t = o.time ? Date.parse(/[zZ]|[+-]\d\d:?\d\d$/.test(o.time) ? o.time : o.time.replace(/(\.\d{3})\d*$/, '$1') + 'Z') : NaN;
-        if (Number.isNaN(t)) continue;
-        (delivered.get(o.locationId) || delivered.set(o.locationId, []).get(o.locationId)!).push({ orderId: o.orderId, time: t });
-      }
-    } catch {
-      delivered = null;
-      note = 'delivered_unavailable';
-    }
-
-    const data = buildPositions(r, positions, sessionDate, delivered, note);
+    const data = buildPositions(r, positions, sessionDate, null, null);
     return NextResponse.json(
       {
         ...data,

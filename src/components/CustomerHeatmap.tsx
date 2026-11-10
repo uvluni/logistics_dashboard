@@ -6,6 +6,7 @@ import 'leaflet/dist/leaflet.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Map as LeafletMap, CircleMarker } from 'leaflet';
 import { useLanguage } from '@/context/LanguageContext';
+import DateInput from '@/components/DateInput';
 import { t } from '@/i18n/translations';
 import type { CustomerHeat, HeatCustomer } from '@/lib/customerHeat';
 
@@ -194,10 +195,10 @@ export default function CustomerHeatmap({ sessionDate }: { sessionDate: string }
           <h2 style={{ fontSize: 20, fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>{t('heat.title', language)}</h2>
           <span style={{ flex: 1 }} />
           <label style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
-            {t('heat.from', language)} <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={input} />
+            {t('heat.from', language)} <DateInput value={from} onChange={setFrom} style={input} />
           </label>
           <label style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
-            {t('heat.to', language)} <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={input} />
+            {t('heat.to', language)} <DateInput value={to} onChange={setTo} style={input} />
           </label>
           <span style={{ display: 'inline-flex', borderRadius: 6, overflow: 'hidden' }}>
             {[7, 30, 90].map((n) => (

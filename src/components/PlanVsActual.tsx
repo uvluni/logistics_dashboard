@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLanguage } from '@/context/LanguageContext';
+import DateInput from '@/components/DateInput';
 import { t } from '@/i18n/translations';
 import type { ActualsResponse } from '@/lib/actualsComparison';
 import { GROUP_COLOR, groupOf, signed, sortByUrgency, type Group } from '@/lib/pvaGroups';
@@ -99,10 +100,9 @@ export default function PlanVsActual({ sessionDate, onDateChange }: { sessionDat
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', justifyContent: 'space-between' }}>
           <h2 style={{ fontSize: 20, fontWeight: 600, margin: 0, color: 'var(--text-primary)' }}>{t('pva.title', language)}</h2>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <input
-              type="date"
+            <DateInput
               value={sessionDate}
-              onChange={(e) => e.target.value && onDateChange(e.target.value)}
+              onChange={onDateChange}
               style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)', fontSize: 14 }}
             />
             <button

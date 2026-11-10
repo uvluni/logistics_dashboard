@@ -1,12 +1,13 @@
 'use client';
 
-// Where was the driver when he reported arrival, "delivered" and departure at each customer?
+// Where was the driver when he reported arrival and departure at each customer?
 // Street map (Leaflet + OpenStreetMap) of the truck GPS track with the report positions, next to
-// each customer's location. Data: /api/positions (route actuals + equipment positions + SOAP).
+// each customer's location. Data: /api/positions (route actuals + equipment positions).
 import 'leaflet/dist/leaflet.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Map as LeafletMap } from 'leaflet';
 import { useLanguage } from '@/context/LanguageContext';
+import DateInput from '@/components/DateInput';
 import { t } from '@/i18n/translations';
 import type { DriverPositions, EventType } from '@/lib/driverPositions';
 
@@ -193,7 +194,6 @@ export default function DriverMap({ sessionDate, onDateChange }: { sessionDate: 
   const notes: string[] = [];
   if (data && !data.track.length) notes.push(t('map.no_track', language));
   if (data && !data.summary.events) notes.push(t('map.no_events', language));
-  if (data?.deliveredNote) notes.push(t(`map.${data.deliveredNote}`, language));
 
   const cell = (i: number, type: EventType) => {
     const evs = data!.stops[i].events.filter((e) => e.type === type);
@@ -227,7 +227,7 @@ export default function DriverMap({ sessionDate, onDateChange }: { sessionDate: 
           <span style={{ flex: 1 }} />
           <label style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
             {t('map.date', language)}{' '}
-            <input type="date" value={sessionDate} onChange={(e) => onDateChange(e.target.value)} style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border-primary)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }} />
+            <DateInput value={sessionDate} onChange={onDateChange} style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border-primary)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }} />
           </label>
           <label style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
             {t('map.route', language)}{' '}
@@ -258,7 +258,6 @@ export default function DriverMap({ sessionDate, onDateChange }: { sessionDate: 
               {tile(t('map.events', language), String(S.events))}
               {tile(t('map.with_gps', language), `${S.withGps}/${S.events}`)}
               {tile(t('map.far', language), String(S.far), S.far ? '#dc2626' : '#16a34a', t('map.far_sub', language).replace('{m}', String(data.farThresholdM)))}
-              {tile(t('map.delivered_marks', language), String(S.delivered))}
             </div>
             {notes.map((n) => (
               <div key={n} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-primary)', borderRadius: 6, padding: '8px 12px', marginBottom: 8, color: 'var(--text-secondary)', fontSize: 13 }}>
@@ -266,7 +265,7 @@ export default function DriverMap({ sessionDate, onDateChange }: { sessionDate: 
               </div>
             ))}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, fontSize: 12, color: 'var(--text-secondary)', margin: '8px 0' }}>
-              {(['arrival', 'delivered', 'departure'] as EventType[]).map((k) => (
+              {(['arrival', 'departure'] as EventType[]).map((k) => (
                 <span key={k}>
                   <i style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: COLOR[k], marginInlineEnd: 5 }} />
                   {label(k)}
@@ -297,7 +296,6 @@ export default function DriverMap({ sessionDate, onDateChange }: { sessionDate: 
                   <th style={{ padding: 8, textAlign: align }}>#</th>
                   <th style={{ padding: 8, textAlign: align }}>{t('map.customer_col', language)}</th>
                   <th style={{ padding: 8, textAlign: align }}>{label('arrival')}</th>
-                  <th style={{ padding: 8, textAlign: align }}>{label('delivered')}</th>
                   <th style={{ padding: 8, textAlign: align }}>{label('departure')}</th>
                 </tr>
               </thead>
@@ -314,7 +312,6 @@ export default function DriverMap({ sessionDate, onDateChange }: { sessionDate: 
                       {s.city && <div style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>{s.city}</div>}
                     </td>
                     {cell(i, 'arrival')}
-                    {cell(i, 'delivered')}
                     {cell(i, 'departure')}
                   </tr>
                 ))}
