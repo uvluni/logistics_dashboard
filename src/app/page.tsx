@@ -11,6 +11,7 @@ import PlanVsActual from '@/components/PlanVsActual';
 import dynamic from 'next/dynamic';
 // Leaflet touches window on import, so the map screen is client-only.
 const DriverMap = dynamic(() => import('@/components/DriverMap'), { ssr: false });
+const CustomerHeatmap = dynamic(() => import('@/components/CustomerHeatmap'), { ssr: false });
 import { RouteKPI, DashboardSummary as Summary } from '@/types';
 import { useLanguage } from '@/context/LanguageContext';
 import { t } from '@/i18n/translations';
@@ -86,7 +87,7 @@ export default function Home() {
   const [validationMessage, setValidationMessage] = useState('');
   const [validationType, setValidationType] = useState<'google' | 'rodnet' | null>(null);
   const [toastMessage, setToastMessage] = useState('');
-  const [view, setView] = useState<'plan' | 'actual' | 'map'>('plan');
+  const [view, setView] = useState<'plan' | 'actual' | 'map' | 'heat'>('plan');
   const datePickerRef = useRef<DatePicker>(null);
   const insightsRef = useRef<HTMLDivElement>(null);
   const airtableRef = useRef<HTMLDivElement>(null);
@@ -1031,7 +1032,7 @@ export default function Home() {
       <Navbar />
       <div style={{ position: 'sticky', top: 60, backgroundColor: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-primary)', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', zIndex: 9, padding: '8px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap', direction: isRTL ? 'rtl' : 'ltr' }}>
         <div role="tablist" style={{ display: 'flex', gap: '4px' }}>
-          {(['plan', 'actual', 'map'] as const).map((v) => (
+          {(['plan', 'actual', 'map', 'heat'] as const).map((v) => (
             <button
               key={v}
               role="tab"
@@ -1039,7 +1040,7 @@ export default function Home() {
               onClick={() => setView(v)}
               style={{ padding: '8px 16px', borderRadius: '6px', fontWeight: 600, fontSize: '14px', cursor: 'pointer', transition: 'all 0.2s', border: '1px solid var(--border-primary)', backgroundColor: view === v ? 'var(--color-blue)' : 'transparent', color: view === v ? 'white' : 'var(--text-secondary)' }}
             >
-              {t(v === 'plan' ? 'nav.plan' : v === 'actual' ? 'nav.plan_vs_actual' : 'nav.driver_map', language)}
+              {t(v === 'plan' ? 'nav.plan' : v === 'actual' ? 'nav.plan_vs_actual' : v === 'map' ? 'nav.driver_map' : 'nav.heatmap', language)}
             </button>
           ))}
         </div>
@@ -1051,6 +1052,7 @@ export default function Home() {
       <div style={{ maxWidth: '100%', margin: '0 auto', padding: '32px' }}>
         {view === 'actual' && <PlanVsActual sessionDate={selectedDate} onDateChange={setSelectedDate} />}
         {view === 'map' && <DriverMap sessionDate={selectedDate} onDateChange={setSelectedDate} />}
+        {view === 'heat' && <CustomerHeatmap sessionDate={selectedDate} />}
         {view === 'plan' && (<>
         <div style={{ backgroundColor: 'var(--bg-secondary)', borderRadius: '6px', border: '1px solid var(--border-primary)', padding: '32px', marginBottom: '32px' }}>
           <h2 style={{ fontSize: '20px', fontWeight: 600, marginBottom: '24px', color: 'var(--text-primary)', textAlign: isRTL ? 'right' : 'left' }}>{t('dashboard.planning_header', language)} - {selectedDate ? formatDateForDisplay(selectedDate) : '...'}</h2>
