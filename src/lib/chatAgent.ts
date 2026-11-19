@@ -2,7 +2,9 @@
 // extension gives Claude Desktop, streamed to the browser. Conversations live in this server's memory.
 import Anthropic from '@anthropic-ai/sdk';
 import { randomUUID } from 'node:crypto';
-import { callTool, mcpFor, sessionKey } from './roadnetMcp';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import { callToolRaw, mcpFor, reportsDirOf, resultText, sessionKey, type ToolResult } from './roadnetMcp';
 
 const MODEL = process.env.ROADNET_CHAT_MODEL || 'claude-opus-5-5';
 const MAX_STEPS = 16; // tool rounds per question
@@ -13,6 +15,10 @@ export type ChatEvent =
   | { type: 'text'; text: string }
   | { type: 'tool'; name: string }
   | { type: 'tool_done'; name: string; ok: boolean }
+  /** A tool with a graphical view ran: the browser shows the view with this input and result. */
+  | { type: 'view'; tool: string; uri: string; input: Record<string, unknown>; result: ToolResult }
+  /** A report file is ready to open (served by /api/chat/file). */
+  | { type: 'file'; name: string }
   | { type: 'done' }
   | { type: 'error'; message: string };
 
@@ -24,12 +30,24 @@ interface Conversation {
 const g = globalThis as unknown as { __roadnetChats?: Map<string, Conversation> };
 const conversations = (g.__roadnetChats ??= new Map());
 
-// The chat shows text only: the extension's views are not rendered here.
+// The chat shows the extension's graphical views inline, where their tool ran.
 const CHAT_NOTE = `
 You are answering inside the ROADNET web dashboard's chat panel, not in Claude Desktop.
-- The extension's graphical views are NOT shown here. Tools return a summary (and a viewDataId you must ignore). Present what matters yourself: the key numbers, a short markdown table (at most ~12 rows) or bullets, then the 2-3 main findings and actions.
-- Never say "see the view" or "the view shows"; there is none. Files saved to the reports folder are on the dashboard's server; give their names.
+- The extension's graphical views ARE shown in this chat, right where their tool ran, the same as in Claude Desktop. Don't repeat their tables; add a short summary with the 2-3 main findings and concrete actions.
+- open_report_file shows a link to the file in this chat (the user opens it from there); report files are not opened on anyone's computer.
 - Keep answers short and concrete. Markdown: tables, bullets, **bold**; no images.`;
+
+const REPORT_FILE = /^roadnet-[\w-]+\.(html|csv)$/i;
+
+/** open_report_file in the dashboard: instead of opening a window on the server, the chat shows a link. */
+function openReportFile(token: string, args: Record<string, unknown>, emit: (e: ChatEvent) => void): ToolResult {
+  const name = path.basename(String(args.file || '').trim());
+  const fail = (text: string): ToolResult => ({ content: [{ type: 'text', text }], isError: true });
+  if (!REPORT_FILE.test(name)) return fail('Only ROADNET report files (HTML or CSV) from the reports folder can be opened.');
+  if (!existsSync(path.join(reportsDirOf(token), name))) return fail(`Report file not found: ${name}. Create it first with show_report.`);
+  emit({ type: 'file', name });
+  return { content: [{ type: 'text', text: JSON.stringify({ opened: name, note: 'A link to the file is shown in the chat.' }) }] };
+}
 
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(Date.now());
 
@@ -108,9 +126,13 @@ export async function runChat(token: string, conversationId: string | undefined,
         }
         try {
           // The tools server validates the arguments against each tool's schema before running it.
-          const r = await callTool(token, u.name, u.input as Record<string, unknown>);
+          const input = u.input as Record<string, unknown>;
+          const r = u.name === 'open_report_file' ? openReportFile(token, input, emit) : await callToolRaw(token, u.name, input);
           emit({ type: 'tool_done', name: u.name, ok: !r.isError });
-          const text = r.text.length > MAX_TOOL_TEXT ? r.text.slice(0, MAX_TOOL_TEXT) + '\n[result shortened for length]' : r.text;
+          const uri = mcp.views.get(u.name);
+          if (uri && !r.isError) emit({ type: 'view', tool: u.name, uri, input, result: r });
+          const full = resultText(r);
+          const text = full.length > MAX_TOOL_TEXT ? full.slice(0, MAX_TOOL_TEXT) + '\n[result shortened for length]' : full;
           return { type: 'tool_result', tool_use_id: u.id, is_error: r.isError || undefined, content: text };
         } catch (err) {
           emit({ type: 'tool_done', name: u.name, ok: false });

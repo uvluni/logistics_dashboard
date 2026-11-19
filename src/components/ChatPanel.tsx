@@ -4,30 +4,40 @@
 // Answers stream in as newline-delimited JSON events from /api/chat.
 import React, { useEffect, useRef, useState } from 'react';
 import { useLanguage } from '@/context/LanguageContext';
+import ChatViewFrame, { type ChatView } from './ChatViewFrame';
 
 type Lang = 'he' | 'en' | 'es';
+/** An answer in the order it streamed: text, the extension's views where their tool ran, report-file links. */
+type Part = { kind: 'text'; text: string } | { kind: 'view'; view: ChatView } | { kind: 'file'; name: string };
 interface Msg {
   role: 'user' | 'assistant';
   text: string;
+  parts: Part[];
   tools: { name: string; done: boolean; ok: boolean }[];
   error?: string;
 }
+
+const fileUrl = (name: string) => `/api/chat/file?name=${encodeURIComponent(name)}`;
+const addFile = (m: Msg, name: string): Msg => (m.parts.some((p) => p.kind === 'file' && p.name === name) ? m : { ...m, parts: [...m.parts, { kind: 'file', name }] });
 
 const STR: Record<Lang, Record<string, string>> = {
   he: {
     open: 'שאל את Claude', title: 'Claude · ROADNET', placeholder: 'שאלה על התכנון, הביצוע או הנהגים…', send: 'שלח', newChat: 'שיחה חדשה',
     hint: 'שאל בשפה רגילה, למשל: "איך נראה התכנון של מחר?", "מי מאחר עכשיו?", "למה מסלול 1003 התארך?"',
     running: 'בודק', noKey: 'לא הוגדר מפתח Claude API בשרת (ANTHROPIC_API_KEY ב-.env.local).', expired: 'החיבור ל-ROADNET פג. התחבר מחדש.', failed: 'השאלה לא נשלחה. נסה שוב.', close: 'סגור',
+    expand: 'הרחב', shrink: 'הקטן', openFile: 'פתח קובץ', viewFailed: 'התצוגה לא נטענה',
   },
   en: {
     open: 'Ask Claude', title: 'Claude · ROADNET', placeholder: 'Ask about the plan, execution or drivers…', send: 'Send', newChat: 'New chat',
     hint: 'Ask in plain language, e.g. "How does tomorrow\'s plan look?", "Who is late now?", "Why did route 1003 run long?"',
     running: 'Checking', noKey: 'No Claude API key is set on the server (ANTHROPIC_API_KEY in .env.local).', expired: 'The ROADNET session expired. Log in again.', failed: 'The question was not sent. Try again.', close: 'Close',
+    expand: 'Expand', shrink: 'Shrink', openFile: 'Open file', viewFailed: 'The view did not load',
   },
   es: {
     open: 'Preguntar a Claude', title: 'Claude · ROADNET', placeholder: 'Pregunta sobre el plan, la ejecución o los conductores…', send: 'Enviar', newChat: 'Nuevo chat',
     hint: 'Pregunta en lenguaje natural, p. ej. "¿Cómo se ve el plan de mañana?", "¿Quién va tarde ahora?"',
     running: 'Consultando', noKey: 'No hay clave de la API de Claude en el servidor (ANTHROPIC_API_KEY en .env.local).', expired: 'La sesión de ROADNET expiró. Inicia sesión de nuevo.', failed: 'No se envió la pregunta. Inténtalo de nuevo.', close: 'Cerrar',
+    expand: 'Ampliar', shrink: 'Reducir', openFile: 'Abrir archivo', viewFailed: 'La vista no se cargó',
   },
 };
 
@@ -81,12 +91,16 @@ export default function ChatPanel() {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
+  // Wide mode for the graphical views; turned on by the first view of a conversation.
+  const [wide, setWide] = useState(false);
+  const autoWidened = useRef(false);
   const conversationId = useRef<string | undefined>(undefined);
   const listRef = useRef<HTMLDivElement>(null);
+  const busyRef = useRef(false);
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
-  }, [msgs, open]);
+  }, [msgs.length, open]);
 
   const update = (fn: (m: Msg) => Msg) =>
     setMsgs((all) => {
@@ -94,13 +108,34 @@ export default function ChatPanel() {
       copy[copy.length - 1] = fn(copy[copy.length - 1]);
       return copy;
     });
+  const updateAt = (i: number, fn: (m: Msg) => Msg) => setMsgs((all) => all.map((m, j) => (j === i ? fn(m) : m)));
 
-  async function send() {
-    const question = input.trim();
-    if (!question || busy) return;
-    setInput('');
+  const appendText = (m: Msg, text: string): Msg => {
+    const last = m.parts[m.parts.length - 1];
+    if (last?.kind === 'text') return { ...m, text: m.text + text, parts: [...m.parts.slice(0, -1), { kind: 'text', text: last.text + text }] };
+    return { ...m, text: m.text + text, parts: [...m.parts, { kind: 'text', text }] };
+  };
+
+  /** A view asked to open a report file: try a new tab, and keep a link under that answer. */
+  const openFileFrom = (i: number) => (name: string) => {
+    if (!/^roadnet-[\w-]+\.(html|csv)$/i.test(name)) return;
+    window.open(fileUrl(name), '_blank', 'noopener');
+    updateAt(i, (m) => addFile(m, name));
+  };
+
+  /** A view asked a follow-up question: send it, or leave it in the box while an answer is running. */
+  const askFromView = (text: string) => {
+    if (busyRef.current) setInput(text);
+    else send(text);
+  };
+
+  async function send(fromView?: string) {
+    const question = (fromView ?? input).trim();
+    if (!question || busyRef.current) return;
+    if (fromView === undefined) setInput('');
+    busyRef.current = true;
     setBusy(true);
-    setMsgs((m) => [...m, { role: 'user', text: question, tools: [] }, { role: 'assistant', text: '', tools: [] }]);
+    setMsgs((m) => [...m, { role: 'user', text: question, parts: [], tools: [] }, { role: 'assistant', text: '', parts: [], tools: [] }]);
     try {
       const res = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: question, conversationId: conversationId.current }) });
       if (!res.ok || !res.body) {
@@ -122,7 +157,14 @@ export default function ChatPanel() {
           if (!line.trim()) continue;
           const e = JSON.parse(line);
           if (e.type === 'start') conversationId.current = e.conversationId;
-          else if (e.type === 'text') update((m) => ({ ...m, text: m.text + e.text }));
+          else if (e.type === 'text') update((m) => appendText(m, e.text));
+          else if (e.type === 'view') {
+            update((m) => ({ ...m, parts: [...m.parts, { kind: 'view', view: { tool: e.tool, uri: e.uri, input: e.input || {}, result: e.result } }] }));
+            if (!autoWidened.current) {
+              autoWidened.current = true;
+              setWide(true);
+            }
+          } else if (e.type === 'file') update((m) => addFile(m, e.name));
           else if (e.type === 'tool') update((m) => ({ ...m, tools: [...m.tools, { name: e.name, done: false, ok: true }] }));
           else if (e.type === 'tool_done') update((m) => ({ ...m, tools: m.tools.map((t) => (t.name === e.name && !t.done ? { ...t, done: true, ok: e.ok } : t)) }));
           else if (e.type === 'error') update((m) => ({ ...m, error: e.message }));
@@ -131,12 +173,14 @@ export default function ChatPanel() {
     } catch {
       update((m) => ({ ...m, error: s.failed }));
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   }
 
   const reset = () => {
     conversationId.current = undefined;
+    autoWidened.current = false;
     setMsgs([]);
   };
 
@@ -148,7 +192,7 @@ export default function ChatPanel() {
     );
 
   return (
-    <div style={{ position: 'fixed', bottom: 16, left: 16, zIndex: 50, width: 'min(440px, calc(100vw - 32px))', height: 'min(640px, calc(100vh - 32px))', display: 'flex', flexDirection: 'column', background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-primary)', borderRadius: 12, boxShadow: '0 8px 30px rgba(0,0,0,.35)', overflow: 'hidden' }}>
+    <div style={{ position: 'fixed', bottom: 16, left: 16, zIndex: 50, width: wide ? 'min(1100px, calc(100vw - 32px))' : 'min(440px, calc(100vw - 32px))', height: wide ? 'calc(100vh - 32px)' : 'min(640px, calc(100vh - 32px))', display: 'flex', flexDirection: 'column', background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-primary)', borderRadius: 12, boxShadow: '0 8px 30px rgba(0,0,0,.35)', overflow: 'hidden' }}>
       <style>{`
         .chat-md p { margin: 0 0 6px; line-height: 1.5; }
         .chat-md .chat-h { font-weight: 700; margin-top: 8px; }
@@ -163,6 +207,7 @@ export default function ChatPanel() {
       `}</style>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'var(--bg-header)', borderBottom: '1px solid var(--border-primary)' }}>
         <strong style={{ flex: 1, color: 'var(--text-header)' }}>{s.title}</strong>
+        <button onClick={() => setWide((w) => !w)} title={wide ? s.shrink : s.expand} aria-label={wide ? s.shrink : s.expand} style={{ background: 'none', border: '1px solid var(--border-secondary)', color: 'var(--text-secondary)', borderRadius: 6, padding: '3px 8px', fontSize: 12, cursor: 'pointer' }}>{wide ? '⤡' : '⤢'}</button>
         <button onClick={reset} disabled={busy} style={{ background: 'none', border: '1px solid var(--border-secondary)', color: 'var(--text-secondary)', borderRadius: 6, padding: '3px 8px', fontSize: 12, cursor: 'pointer' }}>{s.newChat}</button>
         <button onClick={() => setOpen(false)} aria-label={s.close} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 18, cursor: 'pointer' }}>×</button>
       </div>
@@ -178,7 +223,17 @@ export default function ChatPanel() {
                   {t.done ? (t.ok ? '✓' : '✗') : '⏳'} {s.running}: <code dir="ltr">{t.name}</code>
                 </div>
               ))}
-              {m.text && <div className="chat-md" dangerouslySetInnerHTML={{ __html: renderMarkdown(m.text) }} />}
+              {m.parts.map((p, j) =>
+                p.kind === 'text' ? (
+                  <div key={j} className="chat-md" dangerouslySetInnerHTML={{ __html: renderMarkdown(p.text) }} />
+                ) : p.kind === 'view' ? (
+                  <ChatViewFrame key={j} view={p.view} lang={language} onAsk={askFromView} onFile={openFileFrom(i)} failedText={s.viewFailed} />
+                ) : (
+                  <a key={j} href={fileUrl(p.name)} target="_blank" rel="noopener" style={{ display: 'inline-block', margin: '4px 0', fontSize: 13, color: 'var(--color-blue-light)' }}>
+                    📄 {s.openFile}: <span dir="ltr">{p.name}</span>
+                  </a>
+                )
+              )}
               {!m.text && !m.error && busy && i === msgs.length - 1 && <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>…</div>}
               {m.error && <div style={{ color: '#e5534b', fontSize: 13 }}>{m.error}</div>}
             </div>
@@ -200,7 +255,7 @@ export default function ChatPanel() {
           placeholder={s.placeholder}
           style={{ flex: 1, resize: 'none', background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-secondary)', borderRadius: 8, padding: '8px 10px', fontSize: 14, fontFamily: 'inherit' }}
         />
-        <button onClick={send} disabled={busy || !input.trim()} style={{ alignSelf: 'stretch', padding: '0 16px', borderRadius: 8, border: 'none', background: busy || !input.trim() ? 'var(--bg-tertiary)' : 'var(--color-blue)', color: '#fff', fontWeight: 600, cursor: busy ? 'default' : 'pointer' }}>
+        <button onClick={() => send()} disabled={busy || !input.trim()} style={{ alignSelf: 'stretch', padding: '0 16px', borderRadius: 8, border: 'none', background: busy || !input.trim() ? 'var(--bg-tertiary)' : 'var(--color-blue)', color: '#fff', fontWeight: 600, cursor: busy ? 'default' : 'pointer' }}>
           {s.send}
         </button>
       </div>

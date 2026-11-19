@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { checkRateLimit } from '@/lib/rateLimiter';
+import { chatGuard } from '@/lib/chatGuard';
 import { hasClaudeCredentials, runChat, sweepConversations, type ChatEvent } from '@/lib/chatAgent';
 
 export const runtime = 'nodejs';
@@ -9,14 +9,8 @@ export const maxDuration = 300;
 
 /** Streams one chat answer as newline-delimited JSON events (see ChatEvent). */
 export async function POST(request: NextRequest) {
-  const token = request.cookies.get('roadnet_token')?.value;
-  if (!token) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-
-  // The cookie is SameSite=strict; also refuse cross-site posts outright.
-  const origin = request.headers.get('origin');
-  if (origin && new URL(origin).host !== request.headers.get('host')) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-
-  if (!checkRateLimit(`chat:${token}`, 10, 60_000)) return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 });
+  const token = chatGuard(request, 'chat', 10);
+  if (typeof token !== 'string') return token;
   if (!hasClaudeCredentials()) return NextResponse.json({ error: 'missing_api_key' }, { status: 503 });
 
   const body = await request.json().catch(() => null);
