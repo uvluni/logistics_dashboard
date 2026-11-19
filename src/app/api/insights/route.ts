@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rateLimiter';
+import { effectiveMode } from '@/lib/aiMode';
 
 export async function POST(request: NextRequest) {
   try {
@@ -36,12 +37,16 @@ export async function POST(request: NextRequest) {
       stopsAnalysis = generateStopsAnalysis(stopsData, language);
     }
 
+    // Low and no-AI modes: the insights are computed here by rules, and nothing is sent to the AI.
+    // (Even low AI mode: the AI may read a question, never ROADNET data.)
+    const aiMode = effectiveMode(body.aiMode);
+
     // Prepare prompt for Claude API
     const prompt = generatePrompt(routesData, language, stopsAnalysis);
 
     // Call Claude API
     const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
+    if (!apiKey || aiMode !== 'full') {
       // Fallback: Generate insights locally
       const insights = generateLocalInsights(routesData, language, stopsAnalysis);
       return NextResponse.json({

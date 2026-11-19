@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { chatGuard } from '@/lib/chatGuard';
 import { callToolRaw, viewMayCall } from '@/lib/roadnetMcp';
+import { effectiveMode } from '@/lib/aiMode';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -16,9 +17,11 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
   const name = typeof body?.name === 'string' ? body.name : '';
   const args = body?.arguments && typeof body.arguments === 'object' && !Array.isArray(body.arguments) ? body.arguments : {};
-  if (!name || !(await viewMayCall(token, name))) return NextResponse.json({ error: 'This tool cannot be called from a view' }, { status: 403 });
+  // Low and no-AI modes use the blind tools server, the same one that produced the view.
+  const blind = effectiveMode(body?.mode) !== 'full';
+  if (!name || !(await viewMayCall(token, name, blind))) return NextResponse.json({ error: 'This tool cannot be called from a view' }, { status: 403 });
   try {
-    return NextResponse.json(await callToolRaw(token, name, args), { headers: { 'Cache-Control': 'no-store' } });
+    return NextResponse.json(await callToolRaw(token, name, args, blind), { headers: { 'Cache-Control': 'no-store' } });
   } catch (err) {
     const message = err instanceof Error && /session has expired/i.test(err.message) ? 'The ROADNET session has expired. Log in again.' : 'The tool failed.';
     return NextResponse.json({ content: [{ type: 'text', text: message }], isError: true });

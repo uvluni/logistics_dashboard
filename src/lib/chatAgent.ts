@@ -1,12 +1,14 @@
 // The dashboard's chat: Claude with the ROADNET extension's tools, the same instructions the
 // extension gives Claude Desktop, streamed to the browser. Conversations live in this server's memory.
 import Anthropic from '@anthropic-ai/sdk';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { callToolRaw, mcpFor, reportsDirOf, resultText, sessionKey, type ToolResult } from './roadnetMcp';
 
 const MODEL = process.env.ROADNET_CHAT_MODEL || 'claude-opus-5-5';
+// Low AI mode only routes the question to a view: a small, fast model is enough.
+const LOW_MODEL = process.env.ROADNET_CHAT_LOW_MODEL || 'claude-haiku-5-5';
 const MAX_STEPS = 16; // tool rounds per question
 const MAX_TOOL_TEXT = 120_000; // characters of one tool result sent to the model
 
@@ -19,11 +21,15 @@ export type ChatEvent =
   | { type: 'view'; tool: string; uri: string; input: Record<string, unknown>; result: ToolResult }
   /** A report file is ready to open (served by /api/chat/file). */
   | { type: 'file'; name: string }
+  /** Low AI mode: the answer came from a saved one; the AI was not called. */
+  | { type: 'saved' }
   | { type: 'done' }
   | { type: 'error'; message: string };
 
 interface Conversation {
   owner: string;
+  /** A conversation stays in one mode: a full-AI history holds data that low mode must not resend. */
+  mode: 'full' | 'low';
   messages: Anthropic.Beta.BetaMessageParam[];
   updated: number;
 }
@@ -58,16 +64,23 @@ export function hasClaudeCredentials(): boolean {
   return !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
 }
 
-/** One user question: runs the model and its tool calls until it answers, emitting events as it goes. */
-export async function runChat(token: string, conversationId: string | undefined, question: string, emit: (e: ChatEvent) => void): Promise<void> {
+/** The caller's conversation if it is theirs and in the same mode; otherwise a new one. */
+function conversationFor(token: string, conversationId: string | undefined, mode: 'full' | 'low', emit: (e: ChatEvent) => void): Conversation {
   const owner = sessionKey(token);
-  let id = conversationId && conversations.get(conversationId)?.owner === owner ? conversationId : undefined;
+  const old = conversationId ? conversations.get(conversationId) : undefined;
+  let id = old && old.owner === owner && old.mode === mode ? conversationId! : undefined;
   if (!id) {
     id = randomUUID();
-    conversations.set(id, { owner, messages: [], updated: Date.now() });
+    conversations.set(id, { owner, mode, messages: [], updated: Date.now() });
   }
-  const conv = conversations.get(id)!;
   emit({ type: 'start', conversationId: id });
+  return conversations.get(id)!;
+}
+
+/** One user question: runs the model and its tool calls until it answers, emitting events as it goes. */
+export async function runChat(token: string, conversationId: string | undefined, question: string, emit: (e: ChatEvent) => void, mode: 'full' | 'low' = 'full'): Promise<void> {
+  if (mode === 'low') return runLowChat(token, conversationId, question, emit);
+  const conv = conversationFor(token, conversationId, 'full', emit);
 
   const mcp = await mcpFor(token);
   const tools: Anthropic.Beta.BetaTool[] = mcp.tools.map((t) => ({
@@ -141,6 +154,114 @@ export async function runChat(token: string, conversationId: string | undefined,
       })
     );
     conv.messages.push({ role: 'user', content: results });
+  }
+  conv.updated = Date.now();
+  emit({ type: 'done' });
+}
+
+// ---------------------------------------------------------------------------
+// Low AI mode: Claude reads only the question (and earlier questions of this conversation) and picks
+// the view(s) to open. The tools server runs blind (RNA_AI_MODE=low), so a tool result is only
+// {shown, viewDataId}: nothing from ROADNET can reach the model. One model call per question, no
+// second round to "read" results. The view itself fetches its data on this server.
+// ---------------------------------------------------------------------------
+const LOW_NOTE = `
+You are inside the ROADNET web dashboard's chat panel in LOW AI MODE.
+- You never see ROADNET data. Open the right view(s) for the request with the right arguments; the view shows the data to the user.
+- Before the tool call, write ONE short sentence in the user's language naming the view and the date or period you resolved (e.g. "פותח את תכנון ההפצה ל-2026-11-20."). Nothing after the tool call.
+- Never describe, count, summarize or guess data. If the request needs analysis, a written summary, an explanation of causes, an email or a comparison in words, say in one sentence that this needs full AI mode, which is off here, and open the closest view.
+- If no view fits (e.g. a general question), answer in one or two sentences without a tool.`;
+
+// Saved intents: the same question (after the same previous question), on the same day and in the same
+// language, opens the same views again without calling the AI. Kept in memory for the day.
+interface SavedIntent { text: string; calls: { name: string; input: Record<string, unknown> }[]; at: number }
+const gi = globalThis as unknown as { __roadnetIntents?: Map<string, SavedIntent> };
+const intents: Map<string, SavedIntent> = (gi.__roadnetIntents ??= new Map());
+const MAX_INTENTS = 500;
+const norm = (s: string) => s.toLowerCase().replace(/[\s?!.,:;"'׳״]+/g, ' ').trim();
+const intentKey = (owner: string, previous: string, question: string) =>
+  createHash('sha256').update([owner, today(), norm(previous), norm(question)].join('\u0000')).digest('hex');
+
+const lastQuestion = (conv: Conversation): string => {
+  for (let i = conv.messages.length - 1; i >= 0; i--) {
+    const m = conv.messages[i];
+    if (m.role === 'user' && typeof m.content === 'string') return m.content;
+  }
+  return '';
+};
+
+async function runLowChat(token: string, conversationId: string | undefined, question: string, emit: (e: ChatEvent) => void): Promise<void> {
+  const conv = conversationFor(token, conversationId, 'low', emit);
+  const mcp = await mcpFor(token, true);
+  const key = intentKey(conv.owner, lastQuestion(conv), question);
+  conv.messages.push({ role: 'user', content: question });
+  conv.updated = Date.now();
+
+  // Runs the chosen views (no AI) and returns the tool_result blocks for the conversation history.
+  const openViews = async (calls: { id: string; name: string; input: Record<string, unknown> }[]) =>
+    Promise.all(
+      calls.map(async (c): Promise<Anthropic.Beta.BetaToolResultBlockParam> => {
+        emit({ type: 'tool', name: c.name });
+        const uri = mcp.views.get(c.name);
+        try {
+          if (!uri) throw new Error('Only views can be opened in low AI mode.');
+          const r = await callToolRaw(token, c.name, c.input, true);
+          emit({ type: 'tool_done', name: c.name, ok: !r.isError });
+          if (!r.isError) emit({ type: 'view', tool: c.name, uri, input: c.input, result: r });
+          else emit({ type: 'text', text: `\n\n${resultText(r).slice(0, 300)}` });
+          // The model's history gets only the fact that the view was shown, never its data.
+          return { type: 'tool_result', tool_use_id: c.id, is_error: r.isError || undefined, content: r.isError ? 'The view could not be opened.' : 'Shown to the user. (Low AI mode: the data is not sent to you.)' };
+        } catch (err) {
+          emit({ type: 'tool_done', name: c.name, ok: false });
+          return { type: 'tool_result', tool_use_id: c.id, is_error: true, content: err instanceof Error ? err.message : 'failed' };
+        }
+      })
+    );
+
+  const hit = intents.get(key);
+  if (hit && hit.at > Date.now() - 24 * 3600_000) {
+    emit({ type: 'saved' });
+    if (hit.text) emit({ type: 'text', text: hit.text });
+    const calls = hit.calls.map((c) => ({ ...c, id: `toolu_saved_${randomUUID().replace(/-/g, '')}` }));
+    conv.messages.push({ role: 'assistant', content: [...(hit.text ? [{ type: 'text' as const, text: hit.text }] : []), ...calls.map((c) => ({ type: 'tool_use' as const, id: c.id, name: c.name, input: c.input }))] });
+    if (calls.length) conv.messages.push({ role: 'user', content: await openViews(calls) });
+    emit({ type: 'done' });
+    return;
+  }
+
+  const tools: Anthropic.Beta.BetaTool[] = mcp.tools
+    .filter((t) => mcp.views.has(t.name))
+    .map((t) => ({ name: t.name, description: t.description, input_schema: t.inputSchema as Anthropic.Beta.BetaTool.InputSchema }));
+  const stream = client().beta.messages.stream({
+    model: LOW_MODEL,
+    max_tokens: 1024,
+    system: `${mcp.instructions}\n${LOW_NOTE}\n- Today is ${today()} (Israel time).`,
+    tools,
+    messages: conv.messages,
+    cache_control: { type: 'ephemeral' },
+  });
+  stream.on('text', (delta) => emit({ type: 'text', text: delta }));
+  const message = await stream.finalMessage();
+  conv.messages.push({ role: 'assistant', content: message.content as Anthropic.Beta.BetaContentBlockParam[] });
+
+  const uses = message.content.filter((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === 'tool_use');
+  const text = message.content.filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text').map((b) => b.text).join('');
+  if (message.stop_reason === 'refusal') emit({ type: 'text', text: '\n\n(Claude declined to answer this request.)' });
+  else if (message.stop_reason === 'max_tokens' && uses.length) throw new Error('The answer was cut off (max_tokens).');
+  else {
+    const calls = uses
+      .filter((u) => u.input && typeof u.input === 'object' && !Array.isArray(u.input))
+      .map((u) => ({ id: u.id, name: u.name, input: u.input as Record<string, unknown> }));
+    if (uses.length) {
+      const results = await openViews(calls);
+      // A tool call with unparseable input still needs its tool_result in the history.
+      for (const u of uses) if (!calls.some((c) => c.id === u.id)) results.push({ type: 'tool_result', tool_use_id: u.id, is_error: true, content: 'Invalid input.' });
+      conv.messages.push({ role: 'user', content: results });
+    }
+    if (calls.length || text) {
+      intents.set(key, { text, calls: calls.map(({ name, input }) => ({ name, input })), at: Date.now() });
+      if (intents.size > MAX_INTENTS) intents.delete(intents.keys().next().value as string);
+    }
   }
   conv.updated = Date.now();
   emit({ type: 'done' });

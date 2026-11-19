@@ -600,6 +600,8 @@ export default function Home() {
           routesData,
           stopsData: stopsData.length > 0 ? stopsData : undefined,
           language,
+          // The AI level chosen in the chat panel; the server never goes above its own setting.
+          aiMode: (() => { try { return localStorage.getItem('roadnet-ai-mode') || undefined; } catch { return undefined; } })(),
         }),
       });
 

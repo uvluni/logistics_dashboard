@@ -58,8 +58,10 @@ function hostStyles() {
 }
 const hostContext = () => ({ theme: currentTheme(), styles: hostStyles() });
 
-export default function ChatViewFrame({ view, lang, onAsk, onFile, failedText }: {
+export default function ChatViewFrame({ view, mode, lang, onAsk, onFile, failedText }: {
   view: ChatView;
+  /** The AI mode the view was opened in: its own tool calls go to the same (blind or full) tools server. */
+  mode: string;
   lang: string;
   /** A question the view asks on the user's behalf (e.g. "draft an email"). */
   onAsk: (text: string) => void;
@@ -73,6 +75,8 @@ export default function ChatViewFrame({ view, lang, onAsk, onFile, failedText }:
   // The latest callbacks, without restarting the view when the parent re-renders.
   const cb = useRef({ onAsk, onFile });
   cb.current = { onAsk, onFile };
+  // Fixed for the life of the view: switching modes starts a new conversation anyway.
+  const viewMode = useRef(mode).current;
 
   useEffect(() => {
     let cancelled = false;
@@ -97,7 +101,7 @@ export default function ChatViewFrame({ view, lang, onAsk, onFile, failedText }:
             cb.current.onFile(name);
             return { content: [{ type: 'text', text: JSON.stringify({ opened: name }) }] };
           }
-          const r = await fetch('/api/chat/tool', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: params.name, arguments: params.arguments || {} }) });
+          const r = await fetch('/api/chat/tool', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: params.name, arguments: params.arguments || {}, mode: viewMode }) });
           if (!r.ok) return { content: [{ type: 'text', text: (await r.json().catch(() => ({}))).error || `HTTP ${r.status}` }], isError: true };
           return r.json();
         };

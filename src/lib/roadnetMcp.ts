@@ -60,7 +60,12 @@ const appOnly = (t: ToolMeta) => {
   return Array.isArray(vis) && vis.length === 1 && vis[0] === 'app';
 };
 
-async function start(token: string): Promise<Session> {
+/**
+ * blind = the tools server runs in its low AI mode (RNA_AI_MODE=low): view tools return only an id and
+ * the view fetches the data itself; tools that return data as text are off. Used for the dashboard's
+ * low and no-AI modes, so what could reach the model is cut at the source.
+ */
+async function start(token: string, blind: boolean): Promise<Session> {
   const file = serverPath();
   if (!existsSync(file)) throw new Error(`ROADNET tools server not found at ${file}. Build roadnet-plugin or set ROADNET_MCP_SERVER.`);
   const state = stateDir(token);
@@ -77,6 +82,7 @@ async function start(token: string): Promise<Session> {
       RNA_ACTIVE_ENV_FILE: path.join(state, 'active-environment.json'),
       // Report files stay in this session's own folder; the chat serves them from there.
       RNA_REPORTS_DIR: reportsDir,
+      ...(blind ? { RNA_AI_MODE: 'low' } : {}),
       ...(process.env.ROADNET_CHAT_PRIVACY_MODE ? { RNA_PRIVACY_MODE: process.env.ROADNET_CHAT_PRIVACY_MODE } : {}),
       ...(process.env.ROADNET_CHAT_HIDE_DRIVER_NAMES ? { RNA_HIDE_DRIVER_NAMES: process.env.ROADNET_CHAT_HIDE_DRIVER_NAMES } : {}),
     },
@@ -107,11 +113,11 @@ async function start(token: string): Promise<Session> {
 }
 
 /** The tools server for this session's token, started on first use and stopped after 15 idle minutes. */
-export async function mcpFor(token: string): Promise<Session> {
-  const key = sessionKey(token);
+export async function mcpFor(token: string, blind = false): Promise<Session> {
+  const key = `${sessionKey(token)}:${blind ? 'blind' : 'full'}`;
   let p = sessions.get(key);
   if (!p) {
-    p = start(token);
+    p = start(token, blind);
     sessions.set(key, p);
     p.catch(() => sessions.delete(key));
   }
@@ -132,11 +138,37 @@ export async function mcpFor(token: string): Promise<Session> {
   return s;
 }
 
+// Saved results: the same tool with the same arguments is not run again for a while (past dates are
+// stable, so they are kept longer). A view's refresh button (refresh: true) always runs it again.
+const RESULT_TTL_MS = 3 * 60_000;
+const PAST_RESULT_TTL_MS = 30 * 60_000;
+const MAX_SAVED = 300;
+const gr = globalThis as unknown as { __roadnetResults?: Map<string, { at: number; ttl: number; r: ToolResult }> };
+const saved = (gr.__roadnetResults ??= new Map());
+const todayIL = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(Date.now());
+
+function ttlFor(args: Record<string, unknown>): number {
+  const dates = Object.entries(args).filter(([k, v]) => /date/i.test(k) && typeof v === 'string').map(([, v]) => v as string);
+  // Only when every date is given and in the past; tools that default to "today" or "tomorrow" stay short.
+  return dates.length && dates.every((d) => d < todayIL()) ? PAST_RESULT_TTL_MS : RESULT_TTL_MS;
+}
+const stable = (v: unknown): string =>
+  Array.isArray(v) ? `[${v.map(stable).join(',')}]` : v && typeof v === 'object' ? `{${Object.keys(v).sort().map((k) => `${k}:${stable((v as Record<string, unknown>)[k])}`).join(',')}}` : JSON.stringify(v);
+
 /** Runs one tool and returns the full result (content blocks and isError). */
-export async function callToolRaw(token: string, name: string, args: Record<string, unknown>): Promise<ToolResult> {
-  const s = await mcpFor(token);
+export async function callToolRaw(token: string, name: string, args: Record<string, unknown>, blind = false): Promise<ToolResult> {
+  const s = await mcpFor(token, blind);
+  const key = `${sessionKey(token)}:${blind}:${name}:${stable(args)}`;
+  const hit = saved.get(key);
+  if (hit && !args.refresh && Date.now() - hit.at < hit.ttl) return hit.r;
   const r = await s.client.callTool({ name, arguments: args }, undefined, { timeout: 240_000 });
-  return { content: (r.content as ToolResult['content']) || [], structuredContent: r.structuredContent as ToolResult['structuredContent'], isError: !!r.isError };
+  const out: ToolResult = { content: (r.content as ToolResult['content']) || [], structuredContent: r.structuredContent as ToolResult['structuredContent'], isError: !!r.isError };
+  // Only read-only lookups are saved: view tools (and the view-only data tools behind them).
+  if (!out.isError && s.viewCallable.has(name)) {
+    saved.set(key, { at: Date.now(), ttl: ttlFor(args), r: out });
+    if (saved.size > MAX_SAVED) saved.delete(saved.keys().next().value as string);
+  }
+  return out;
 }
 
 /** The text of a tool result. */
@@ -148,14 +180,15 @@ export async function callTool(token: string, name: string, args: Record<string,
   return { text: resultText(r), isError: !!r.isError };
 }
 
-/** The view page (HTML) a tool's result is shown in, or undefined if the tool has no view. */
-export async function viewUriOf(token: string, toolName: string): Promise<string | undefined> {
-  return (await mcpFor(token)).views.get(toolName);
+/** The tools that have a view, with their view URI and argument schema (for the no-AI views menu). */
+export async function viewTools(token: string, blind = false): Promise<{ name: string; uri: string; inputSchema: Record<string, unknown> }[]> {
+  const s = await mcpFor(token, blind);
+  return s.tools.filter((t) => s.views.has(t.name)).map((t) => ({ name: t.name, uri: s.views.get(t.name)!, inputSchema: t.inputSchema }));
 }
 
 /** Reads a view page from the tools server (cached per session). Only URIs of this server's tools. */
-export async function readView(token: string, uri: string): Promise<ViewPage> {
-  const s = await mcpFor(token);
+export async function readView(token: string, uri: string, blind = false): Promise<ViewPage> {
+  const s = await mcpFor(token, blind);
   if (![...s.views.values()].includes(uri)) throw new Error('Unknown view');
   let p = s.pages.get(uri);
   if (!p) {
@@ -172,8 +205,8 @@ export async function readView(token: string, uri: string): Promise<ViewPage> {
 }
 
 /** Whether a view may call this tool itself (refresh, its own data). */
-export async function viewMayCall(token: string, name: string): Promise<boolean> {
-  return (await mcpFor(token)).viewCallable.has(name);
+export async function viewMayCall(token: string, name: string, blind = false): Promise<boolean> {
+  return (await mcpFor(token, blind)).viewCallable.has(name);
 }
 
 /** This session's reports folder (files written by the tools server). */
