@@ -24,6 +24,8 @@ NEXT_PUBLIC_API_BASE_URL=https://apex-prod-eu-integration.eu.roadnet.com/integra
 
 ROADNET username/password are no longer stored in env vars — they're entered on the login screen each session and sent straight through to the ROADNET login API.
 
+Chat panel ("שאל את Claude", `src/components/ChatPanel.tsx` → `/api/chat`): needs `ANTHROPIC_API_KEY` in `.env.local` (restart `npm run dev` after adding it). It runs the ROADNET extension's own tools server from the sibling repo (`../roadnet-plugin/plugins/roadnet/server/dist/index.js`, or `ROADNET_MCP_SERVER`), one process per logged-in session, passing only that session's ROADNET token (`RNA_API_TOKEN`). Optional: `ROADNET_CHAT_MODEL` (default `claude-opus-5-5`), `ROADNET_CHAT_PRIVACY_MODE`, `ROADNET_CHAT_HIDE_DRIVER_NAMES`.
+
 ## Key files
 ```
 src/

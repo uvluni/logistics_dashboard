@@ -9,6 +9,8 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.10.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "date-fns": "^4.4.0",
     "leaflet": "^1.9.4",
     "leaflet.heat": "^0.2.0",

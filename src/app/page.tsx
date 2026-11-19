@@ -15,6 +15,7 @@ const CustomerHeatmap = dynamic(() => import('@/components/CustomerHeatmap'), { 
 import { RouteKPI, DashboardSummary as Summary } from '@/types';
 import { useLanguage } from '@/context/LanguageContext';
 import { t } from '@/i18n/translations';
+import ChatPanel from '@/components/ChatPanel';
 
 function getTodayDate(): string {
   const date = new Date();
@@ -1330,6 +1331,7 @@ export default function Home() {
           </button>
         )}
 
+        <ChatPanel />
       </div>
     </div>
   );
