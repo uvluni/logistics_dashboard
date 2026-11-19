@@ -15,6 +15,7 @@ const L = (lang: Lang, he: string, en: string) => (lang === 'he' ? he : en);
 
 // Menu order and names. Views not listed here still appear, under their tool name, at the end.
 const VIEWS: [string, string, string][] = [
+  ['show_calculation', 'חישובים מובנים (תשובה מוכנה)', 'Built-in calculations (ready answers)'],
   ['show_plan_dashboard', 'תכנון יומי וניצולת', 'Daily plan and utilization'],
   ['show_live_dashboard', 'מצב בשטח: תכנון מול ביצוע', 'Live: plan vs actual'],
   ['show_route_details', 'מסלול אחד: תחנות ומפה', 'One route: stops and map'],
@@ -69,8 +70,23 @@ const ARG_LABELS: Record<string, [string, string]> = {
   metric: ['מדד', 'Metric'],
   reportedOnly: ['רק מדווחים', 'Reported only'],
   normalWorkDayMinutes: ['יום עבודה (דקות)', 'Work day (minutes)'],
+  calc: ['חישוב', 'Calculation'],
+  threshold: ['סף (דקות או %)', 'Limit (minutes or %)'],
+  top: ['כמה להציג', 'How many'],
 };
 const ENUM_LABELS: Record<string, [string, string]> = {
+  day_summary: ['סיכום יום', 'Day summary'],
+  overtime_routes: ['מסלולים שחורגים מיום העבודה', 'Routes over the work day'],
+  light_routes: ['מסלולים קלים ואפשרויות איחוד', 'Light routes and merge options'],
+  late_stops: ['תחנות באיחור', 'Late stops'],
+  missing_reports: ['מסלולים ותחנות בלי דיווח', 'Routes and stops without reports'],
+  plan_gap: ['פער בין תכנון לביצוע', 'Plan vs actual gap'],
+  long_service: ['פריקות ארוכות מהמתוכנן', 'Service longer than planned'],
+  by_city: ['פילוח לפי עיר', 'By city'],
+  top_customers: ['לקוחות מובילים', 'Top customers'],
+  driver_summary: ['סיכום נהגים', 'Driver summary'],
+  daily_trend: ['מגמה לפי יום', 'Day by day'],
+  weekday_pattern: ['עומס לפי יום בשבוע', 'Load by weekday'],
   daily: ['יומי', 'Daily'], weekly: ['שבועי', 'Weekly'], monthly: ['חודשי', 'Monthly'], visits: ['ביקורים', 'Visits'], kg: ['משקל', 'Weight'],
 };
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' }).format(Date.now());
