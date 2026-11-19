@@ -95,7 +95,7 @@ export default function DriverMap({ sessionDate, onDateChange }: { sessionDate: 
       const map = L.map(mapEl.current);
       mapRef.current = map;
       setTilesFailed(false);
-      const useSource = (k: number) => {
+      const trySource = (k: number) => {
         let errors = 0;
         let ok = 0;
         const layer = L.tileLayer(TILE_SOURCES[k][0], { maxZoom: 19, attribution: TILE_SOURCES[k][1] });
@@ -107,12 +107,12 @@ export default function DriverMap({ sessionDate, onDateChange }: { sessionDate: 
           if (ok || errors < 4) return;
           layer.off();
           map.removeLayer(layer);
-          if (k + 1 < TILE_SOURCES.length) useSource(k + 1);
+          if (k + 1 < TILE_SOURCES.length) trySource(k + 1);
           else setTilesFailed(true);
         });
         layer.addTo(map);
       };
-      useSource(0);
+      trySource(0);
 
       const bounds: [number, number][] = [];
       if (data.track.length) {
