@@ -5,10 +5,17 @@
 import 'leaflet/dist/leaflet.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Map as LeafletMap, CircleMarker } from 'leaflet';
+import { CalendarDays, Loader2, MapPin, Route, Users, Weight } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
-import DateInput from '@/components/DateInput';
 import { t } from '@/i18n/translations';
+import { formatDmy } from '@/lib/dates';
 import type { CustomerHeat, HeatCustomer } from '@/lib/customerHeat';
+import { PageHeader } from '@/components/layout/PageHeader';
+import { Button } from '@/components/ui/Button';
+import { Card, CardHeader } from '@/components/ui/Card';
+import { Stat } from '@/components/ui/Stat';
+import { Alert, EmptyState, Skeleton } from '@/components/ui/Feedback';
+import { cn } from '@/components/ui/cn';
 
 const TILE_SOURCES: [string, string][] = [
   ['https://tile.openstreetmap.org/{z}/{x}/{y}.png', '&copy; OpenStreetMap'],
@@ -17,6 +24,15 @@ const TILE_SOURCES: [string, string][] = [
 const GRADIENT = { 0.2: '#2b83ba', 0.4: '#abdda4', 0.6: '#ffffbf', 0.8: '#fdae61', 1: '#d7191c' };
 const TOP = 25;
 const MAX_DAYS = 92;
+
+const TH = 'h-10 whitespace-nowrap px-3 text-start text-[13px] font-medium text-ink-muted';
+const TD = 'px-3 py-2.5';
+const SEGMENT = 'inline-flex items-center gap-0.5 rounded border border-line bg-surface p-0.5 shadow-sm';
+const segButton = (on: boolean) =>
+  cn(
+    'h-7 rounded-sm px-3 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus',
+    on ? 'bg-primary text-primary-fg' : 'text-ink-muted hover:bg-surface-hover hover:text-ink'
+  );
 
 const escHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 const addDays = (iso: string, n: number) => {
@@ -31,8 +47,49 @@ const dm = (iso: string) => {
 type Metric = 'visits' | 'kg';
 type Mode = 'heat' | 'dots';
 
+/** A period date: shows dd/mm/yyyy in every locale; the hidden native input supplies the calendar. */
+function PeriodDate({ label, value, onChange }: { label: string; value: string; onChange: (iso: string) => void }) {
+  const picker = useRef<HTMLInputElement>(null);
+  const open = () => {
+    const el = picker.current;
+    if (!el) return;
+    try {
+      el.showPicker();
+    } catch {
+      el.focus();
+      el.click();
+    }
+  };
+  return (
+    <label className="flex items-center gap-2 text-[13px] text-ink-muted">
+      {label}
+      <span className="relative">
+        <button
+          type="button"
+          onClick={open}
+          className="flex h-9 items-center gap-2 rounded border border-line bg-surface px-3 text-[13px] font-medium text-ink shadow-sm hover:border-line-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus"
+        >
+          <CalendarDays className="size-4 text-ink-subtle" aria-hidden />
+          <span className="tabular" dir="ltr">
+            {formatDmy(value) || '--/--/----'}
+          </span>
+        </button>
+        <input
+          ref={picker}
+          type="date"
+          value={value}
+          onChange={(e) => e.target.value && onChange(e.target.value)}
+          tabIndex={-1}
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-0"
+        />
+      </span>
+    </label>
+  );
+}
+
 export default function CustomerHeatmap({ sessionDate }: { sessionDate: string }) {
-  const { language, isRTL } = useLanguage();
+  const { language } = useLanguage();
   const end0 = sessionDate || new Date().toISOString().slice(0, 10);
   const [to, setTo] = useState(end0);
   const [from, setFrom] = useState(addDays(end0, -29));
@@ -46,7 +103,6 @@ export default function CustomerHeatmap({ sessionDate }: { sessionDate: string }
   const mapEl = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<LeafletMap | null>(null);
   const markersRef = useRef<CircleMarker[]>([]);
-  const align = isRTL ? 'right' : 'left';
   const nf = useMemo(() => new Intl.NumberFormat(language === 'he' ? 'he-IL' : language === 'es' ? 'es-ES' : 'en-US'), [language]);
 
   const load = useCallback(async () => {
@@ -78,7 +134,7 @@ export default function CustomerHeatmap({ sessionDate }: { sessionDate: string }
 
   const tipFor = useCallback(
     (c: HeatCustomer) =>
-      `<b>${escHtml(c.name)}</b>${c.city ? '<br>' + escHtml(c.city) : ''}` +
+      `<b class="sensitive">${escHtml(c.name)}</b>${c.city ? '<br>' + escHtml(c.city) : ''}` +
       `<br>${escHtml(t('heat.tip_visits', language).replace('{v}', String(c.visits)).replace('{r}', String(c.reportedVisits)))}` +
       `<br>${escHtml(t('heat.tip_kg', language).replace('{k}', nf.format(c.kg)))}` +
       `<br>${escHtml(t('heat.tip_days', language).replace('{d}', String(c.days)).replace('{last}', dm(c.lastVisit)))}` +
@@ -125,7 +181,7 @@ export default function CustomerHeatmap({ sessionDate }: { sessionDate: string }
       if (mode === 'heat') {
         (L as any).heatLayer(rows.map((c) => [c.lat, c.lon, Math.min(1, value(c) / cap)]), { radius: 22, blur: 18, maxZoom: 12, minOpacity: 0.35, gradient: GRADIENT }).addTo(map);
         const dots = L.layerGroup();
-        rows.forEach((c) => markers.push(L.circleMarker([c.lat, c.lon], { radius: 5, color: '#fff', weight: 1, fillColor: '#1f1e1b', fillOpacity: 0.55 }).bindTooltip(tipFor(c)).addTo(dots)));
+        rows.forEach((c) => markers.push(L.circleMarker([c.lat, c.lon], { radius: 5, color: '#fff', weight: 1, fillColor: '#043d5c', fillOpacity: 0.55 }).bindTooltip(tipFor(c)).addTo(dots)));
         const sync = () => (map.getZoom() >= 11 ? dots.addTo(map) : map.removeLayer(dots));
         map.on('zoomend', sync);
         setTimeout(() => !disposed && sync(), 350);
@@ -175,113 +231,148 @@ export default function CustomerHeatmap({ sessionDate }: { sessionDate: string }
   const preset = (days: number) => {
     setFrom(addDays(to, -(days - 1)));
   };
-  const card: React.CSSProperties = { backgroundColor: 'var(--bg-secondary)', borderRadius: 6, border: '1px solid var(--border-primary)', padding: 24, marginBottom: 24 };
-  const input: React.CSSProperties = { padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border-primary)', background: 'var(--bg-primary)', color: 'var(--text-primary)' };
-  const btn = (on: boolean): React.CSSProperties => ({ padding: '6px 12px', border: '1px solid var(--border-primary)', background: on ? 'var(--color-blue)' : 'transparent', color: on ? 'white' : 'var(--text-secondary)', cursor: 'pointer', fontSize: 13 });
-  const tile = (k: string, v: string, sub?: string) => (
-    <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-primary)', borderRadius: 8, padding: 16, textAlign: align }}>
-      <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginBottom: 6 }}>{k}</div>
-      <div style={{ color: 'var(--text-primary)', fontSize: 26, fontWeight: 700, lineHeight: 1.1 }}>{v}</div>
-      {sub && <div style={{ color: 'var(--text-tertiary)', fontSize: 12, marginTop: 4 }}>{sub}</div>}
-    </div>
-  );
   const T = data?.totals;
   const tooLong = (Date.parse(to) - Date.parse(from)) / 86400000 + 1 > MAX_DAYS || to < from;
+  const hasMap = !!data && rows.length > 0;
 
   return (
-    <div>
-      <div style={card}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginBottom: 16 }}>
-          <h2 style={{ fontSize: 20, fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>{t('heat.title', language)}</h2>
-          <span style={{ flex: 1 }} />
-          <label style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
-            {t('heat.from', language)} <DateInput value={from} onChange={setFrom} style={input} />
-          </label>
-          <label style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
-            {t('heat.to', language)} <DateInput value={to} onChange={setTo} style={input} />
-          </label>
-          <span style={{ display: 'inline-flex', borderRadius: 6, overflow: 'hidden' }}>
-            {[7, 30, 90].map((n) => (
-              <button key={n} onClick={() => preset(n)} style={btn(false)}>
-                {t('heat.days_n', language).replace('{n}', String(n))}
-              </button>
-            ))}
-          </span>
-          <button onClick={load} disabled={loading || tooLong} style={{ ...btn(true), borderRadius: 6, opacity: loading || tooLong ? 0.6 : 1 }}>
-            {loading ? t('heat.loading_btn', language) : t('heat.show', language)}
-          </button>
-        </div>
-        {tooLong && <div style={{ color: '#dc2626', marginBottom: 12, fontSize: 13 }}>{t('heat.too_long', language).replace('{n}', String(MAX_DAYS))}</div>}
-        {error && <div style={{ color: '#dc2626', marginBottom: 12 }}>{error}</div>}
-        {loading && !data && <div style={{ color: 'var(--text-secondary)' }}>{t('heat.loading', language)}</div>}
-        {data && T && (
+    <div className="space-y-5">
+      <PageHeader
+        title={t('heat.title', language)}
+        subtitle={data ? t('heat.sub', language).replace('{from}', dm(data.from)).replace('{to}', dm(data.to)).replace('{days}', String(data.workDays)) : undefined}
+        actions={
           <>
-            <div style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 12, textAlign: align }}>
-              {t('heat.sub', language).replace('{from}', dm(data.from)).replace('{to}', dm(data.to)).replace('{days}', String(data.workDays))}
+            <PeriodDate label={t('heat.from', language)} value={from} onChange={setFrom} />
+            <PeriodDate label={t('heat.to', language)} value={to} onChange={setTo} />
+            <div className={SEGMENT}>
+              {[7, 30, 90].map((n) => (
+                <button key={n} type="button" onClick={() => preset(n)} className={segButton(false)}>
+                  {t('heat.days_n', language).replace('{n}', String(n))}
+                </button>
+              ))}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 16 }}>
-              {tile(t('heat.t_customers', language), nf.format(T.customers))}
-              {tile(t('heat.t_visits', language), nf.format(T.visits), t('heat.t_visits_sub', language).replace('{p}', String(T.visits ? Math.round((T.reportedVisits / T.visits) * 100) : 0)))}
-              {tile(t('heat.t_kg', language), `${nf.format(Math.round(T.kg / 100) / 10)} ${t('heat.ton', language)}`)}
-              {tile(t('heat.t_days', language), String(data.workDays))}
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginBottom: 8, fontSize: 13, color: 'var(--text-secondary)' }}>
-              <span>{t('heat.showing', language)}</span>
-              <span style={{ display: 'inline-flex', borderRadius: 6, overflow: 'hidden' }}>
-                <button onClick={() => setMetric('visits')} style={btn(metric === 'visits')}>{t('heat.m_visits', language)}</button>
-                <button onClick={() => setMetric('kg')} style={btn(metric === 'kg')}>{t('heat.m_kg', language)}</button>
-              </span>
-              <span style={{ display: 'inline-flex', borderRadius: 6, overflow: 'hidden' }}>
-                <button onClick={() => setMode('heat')} style={btn(mode === 'heat')}>{t('heat.mode_heat', language)}</button>
-                <button onClick={() => setMode('dots')} style={btn(mode === 'dots')}>{t('heat.mode_dots', language)}</button>
-              </span>
-              <label style={{ display: 'inline-flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
-                <input type="checkbox" checked={reportedOnly} onChange={(e) => setReportedOnly(e.target.checked)} /> {t('heat.reported', language)}
-              </label>
-              <span style={{ flex: 1 }} />
-              <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', fontSize: 11, color: 'var(--text-tertiary)' }}>
-                {t('heat.low', language)}
-                <i style={{ width: 90, height: 8, borderRadius: 4, background: 'linear-gradient(90deg,#2b83ba,#abdda4,#ffffbf,#fdae61,#d7191c)' }} />
-                {t('heat.high', language)}
-              </span>
-            </div>
+            <Button variant="primary" onClick={load} disabled={tooLong} loading={loading}>
+              {loading ? t('heat.loading_btn', language) : t('heat.show', language)}
+            </Button>
           </>
-        )}
-        <div ref={mapEl} style={{ height: data && rows.length ? 500 : 0, borderRadius: 8, border: data && rows.length ? '1px solid var(--border-primary)' : 'none', direction: 'ltr', overflow: 'hidden' }} />
-        {data && !rows.length && <div style={{ color: 'var(--text-secondary)' }}>{t('heat.no_data', language)}</div>}
-        {tilesFailed && <div style={{ color: 'var(--text-tertiary)', fontSize: 12, marginTop: 6 }}>{t('map.tiles_failed', language)}</div>}
-        {!!T?.withoutCoordinates && <div style={{ color: 'var(--text-tertiary)', fontSize: 12, marginTop: 6 }}>{t('heat.missing', language).replace('{n}', String(T.withoutCoordinates))}</div>}
-      </div>
+        }
+      />
 
-      {data && rows.length > 0 && (
-        <div style={card}>
-          <h3 style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', marginTop: 0, textAlign: align }}>{t('heat.top', language).replace('{n}', String(Math.min(TOP, rows.length)))}</h3>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, color: 'var(--text-primary)' }}>
+      {tooLong && <Alert tone="warning">{t('heat.too_long', language).replace('{n}', String(MAX_DAYS))}</Alert>}
+      {error && <Alert tone="danger">{error}</Alert>}
+
+      {loading && !data && (
+        <div className="space-y-5" role="status">
+          <p className="flex items-center gap-2 text-sm text-ink-muted">
+            <Loader2 className="size-4 animate-spin text-ink-subtle" aria-hidden />
+            {t('heat.loading', language)}
+          </p>
+          <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+            {Array.from({ length: 4 }, (_, i) => (
+              <Skeleton key={i} className="h-[92px] rounded-lg" />
+            ))}
+          </div>
+          <Skeleton className="h-[500px] rounded-lg" />
+        </div>
+      )}
+
+      {data && T && (
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+          <Stat label={t('heat.t_customers', language)} icon={<Users />} value={nf.format(T.customers)} />
+          <Stat
+            label={t('heat.t_visits', language)}
+            icon={<MapPin />}
+            value={nf.format(T.visits)}
+            hint={t('heat.t_visits_sub', language).replace('{p}', String(T.visits ? Math.round((T.reportedVisits / T.visits) * 100) : 0))}
+          />
+          <Stat label={t('heat.t_kg', language)} icon={<Weight />} value={`${nf.format(Math.round(T.kg / 100) / 10)} ${t('heat.ton', language)}`} />
+          <Stat label={t('heat.t_days', language)} icon={<CalendarDays />} value={String(data.workDays)} />
+        </div>
+      )}
+
+      {/* The map element stays mounted so Leaflet always has its container; it has no height until there are customers to show. */}
+      <Card className={cn(!data && 'hidden')}>
+        {data && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-4 py-2.5 text-[13px] text-ink-muted">
+            <span>{t('heat.showing', language)}</span>
+            <div className={SEGMENT}>
+              <button type="button" aria-pressed={metric === 'visits'} onClick={() => setMetric('visits')} className={segButton(metric === 'visits')}>
+                {t('heat.m_visits', language)}
+              </button>
+              <button type="button" aria-pressed={metric === 'kg'} onClick={() => setMetric('kg')} className={segButton(metric === 'kg')}>
+                {t('heat.m_kg', language)}
+              </button>
+            </div>
+            <div className={SEGMENT}>
+              <button type="button" aria-pressed={mode === 'heat'} onClick={() => setMode('heat')} className={segButton(mode === 'heat')}>
+                {t('heat.mode_heat', language)}
+              </button>
+              <button type="button" aria-pressed={mode === 'dots'} onClick={() => setMode('dots')} className={segButton(mode === 'dots')}>
+                {t('heat.mode_dots', language)}
+              </button>
+            </div>
+            <label className="inline-flex cursor-pointer items-center gap-2 text-ink">
+              <input type="checkbox" checked={reportedOnly} onChange={(e) => setReportedOnly(e.target.checked)} className="size-4 cursor-pointer accent-primary" />
+              {t('heat.reported', language)}
+            </label>
+            <span className="ms-auto inline-flex items-center gap-2 text-xs text-ink-subtle">
+              {t('heat.low', language)}
+              <span className="h-2 w-[90px] rounded-full bg-[linear-gradient(90deg,#2b83ba,#abdda4,#ffffbf,#fdae61,#d7191c)]" aria-hidden />
+              {t('heat.high', language)}
+            </span>
+          </div>
+        )}
+        <div className={cn(hasMap && 'p-3')}>
+          <div ref={mapEl} dir="ltr" className={cn('overflow-hidden rounded', hasMap && 'border border-line')} style={{ height: hasMap ? 500 : 0 }} />
+        </div>
+        {data && !rows.length && <EmptyState icon={<Route />} title={t('heat.no_data', language)} />}
+        {(tilesFailed || !!T?.withoutCoordinates) && (
+          <div className="space-y-1 px-4 pb-3 text-xs text-ink-subtle">
+            {tilesFailed && <p>{t('map.tiles_failed', language)}</p>}
+            {!!T?.withoutCoordinates && <p>{t('heat.missing', language).replace('{n}', String(T.withoutCoordinates))}</p>}
+          </div>
+        )}
+      </Card>
+
+      {hasMap && (
+        <Card className="overflow-hidden">
+          <CardHeader title={t('heat.top', language).replace('{n}', String(Math.min(TOP, rows.length)))} />
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-sm">
               <thead>
-                <tr style={{ color: 'var(--text-secondary)' }}>
+                <tr className="border-b border-line bg-surface-muted">
                   {['#', 'heat.c_cust', 'heat.c_city', 'heat.c_visits', 'heat.c_kg', 'heat.c_days', 'heat.c_routes'].map((k) => (
-                    <th key={k} style={{ padding: 8, textAlign: align }}>{k === '#' ? '#' : t(k, language)}</th>
+                    <th key={k} scope="col" className={TH}>
+                      {k === '#' ? '#' : t(k, language)}
+                    </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {rows.slice(0, TOP).map((c, i) => (
-                  <tr key={c.id} onClick={() => focus(i)} style={{ borderTop: '1px solid var(--border-primary)', cursor: 'pointer', textAlign: align }}>
-                    <td style={{ padding: 8 }}>{i + 1}</td>
-                    <td style={{ padding: 8, minWidth: 180 }}>{c.name}</td>
-                    <td style={{ padding: 8 }}>{c.city}</td>
-                    <td style={{ padding: 8, fontWeight: metric === 'visits' ? 700 : 400 }}>{nf.format(reportedOnly ? c.reportedVisits : c.visits)}</td>
-                    <td style={{ padding: 8, fontWeight: metric === 'kg' ? 700 : 400 }}>{nf.format(reportedOnly ? c.reportedKg : c.kg)}</td>
-                    <td style={{ padding: 8 }}>{c.days}</td>
-                    <td style={{ padding: 8, color: 'var(--text-tertiary)' }}>{c.routes.slice(0, 4).join(', ') + (c.routes.length > 4 ? '…' : '')}</td>
+                  <tr
+                    key={c.id}
+                    tabIndex={0}
+                    onClick={() => focus(i)}
+                    onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), focus(i))}
+                    className="cursor-pointer border-b border-line last:border-0 hover:bg-surface-hover focus-visible:bg-surface-selected focus-visible:outline-none"
+                  >
+                    <td className={cn(TD, 'text-ink-subtle tabular')}>{i + 1}</td>
+                    <td className={cn(TD, 'min-w-[180px] text-ink')}>
+                      <span className="sensitive">{c.name}</span>
+                    </td>
+                    <td className={cn(TD, 'text-ink-muted')}>{c.city}</td>
+                    <td className={cn(TD, 'tabular', metric === 'visits' ? 'font-semibold text-ink' : 'text-ink-muted')}>{nf.format(reportedOnly ? c.reportedVisits : c.visits)}</td>
+                    <td className={cn(TD, 'tabular', metric === 'kg' ? 'font-semibold text-ink' : 'text-ink-muted')}>{nf.format(reportedOnly ? c.reportedKg : c.kg)}</td>
+                    <td className={cn(TD, 'text-ink tabular')}>{c.days}</td>
+                    <td className={cn(TD, 'max-w-[16rem] truncate text-ink-subtle tabular')}>{c.routes.slice(0, 4).join(', ') + (c.routes.length > 4 ? '…' : '')}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <div style={{ color: 'var(--text-tertiary)', fontSize: 12, marginTop: 10, textAlign: align }}>{t('heat.foot', language)}</div>
-        </div>
+          <p className="border-t border-line px-4 py-3 text-xs text-ink-subtle">{t('heat.foot', language)}</p>
+        </Card>
       )}
     </div>
   );

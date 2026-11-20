@@ -6,6 +6,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useLanguage } from '@/context/LanguageContext';
 import ChatViewFrame, { type ChatView } from './ChatViewFrame';
 import ChatViewsMenu, { viewLabel, type ViewToolInfo } from './ChatViewsMenu';
+import { Check, FileText, LayoutGrid, Loader2, Maximize2, Minimize2, SendHorizontal, ShieldCheck, Sparkles, SquarePen, X, XCircle } from 'lucide-react';
+import { Button, IconButton } from './ui/Button';
 
 type Lang = 'he' | 'en' | 'es';
 /** full: Claude analyzes the data. low: Claude only picks the view, never sees data. off: no AI at all. */
@@ -40,7 +42,8 @@ const STR: Record<Lang, Record<string, string>> = {
     about_off: 'ללא AI: שום דבר לא נשלח ל-AI. בחר תצוגה מהתפריט.',
     views: '📊 תצוגות', pick: 'בחר תצוגה…', openView: 'פתח', required: 'מלא את השדות המסומנים ב-*',
     needsAi: 'הפעולה הזו צריכה ניתוח של AI, שכבוי במצב הנוכחי. אפשר לעבור ל-"AI מלא" אם ההתקנה מאפשרת.',
-    aiOff: 'ה-AI כבוי בהתקנה הזו. אפשר לפתוח תצוגות מהתפריט.', saved: '⚡ מתשובה שמורה, בלי פנייה ל-AI',
+    aiOff: 'ה-AI כבוי בהתקנה הזו. אפשר לפתוח תצוגות מהתפריט.',
+    configError: 'לא ניתן לטעון את הגדרות הצ\'אט.', retry: 'נסה שוב', saved: '⚡ מתשובה שמורה, בלי פנייה ל-AI',
     hint_low: 'בקש תצוגה בשפה רגילה, למשל: "תכנון של מחר", "מי מאחר עכשיו", "מסלול 1003 היום". Claude פותח את התצוגה ולא רואה את הנתונים.',
     hint_off: 'בחר תצוגה מהתפריט למטה. התצוגות מציגות את הנתונים ישירות מ-ROADNET, בלי AI.',
   },
@@ -55,7 +58,8 @@ const STR: Record<Lang, Record<string, string>> = {
     about_off: 'No AI: nothing is sent to the AI. Pick a view from the menu.',
     views: '📊 Views', pick: 'Choose a view…', openView: 'Open', required: 'Fill in the fields marked *',
     needsAi: 'This needs AI analysis, which is off in the current mode. Switch to "Full AI" if this installation allows it.',
-    aiOff: 'AI is off in this installation. You can open views from the menu.', saved: '⚡ From a saved answer, no AI call',
+    aiOff: 'AI is off in this installation. You can open views from the menu.',
+    configError: 'The chat settings could not be loaded.', retry: 'Try again', saved: '⚡ From a saved answer, no AI call',
     hint_low: 'Ask for a view in plain language, e.g. "tomorrow\'s plan", "who is late now", "route 1003 today". Claude opens the view and does not see the data.',
     hint_off: 'Choose a view from the menu below. Views show the data straight from ROADNET, with no AI.',
   },
@@ -70,7 +74,8 @@ const STR: Record<Lang, Record<string, string>> = {
     about_off: 'Sin IA: no se envía nada a la IA. Elige una vista del menú.',
     views: '📊 Vistas', pick: 'Elige una vista…', openView: 'Abrir', required: 'Completa los campos con *',
     needsAi: 'Esto necesita análisis de IA, que está apagada en el modo actual. Cambia a "IA completa" si la instalación lo permite.',
-    aiOff: 'La IA está apagada en esta instalación. Puedes abrir vistas desde el menú.', saved: '⚡ Respuesta guardada, sin llamar a la IA',
+    aiOff: 'La IA está apagada en esta instalación. Puedes abrir vistas desde el menú.',
+    configError: 'No se pudo cargar la configuración del chat.', retry: 'Reintentar', saved: '⚡ Respuesta guardada, sin llamar a la IA',
     hint_low: 'Pide una vista en lenguaje natural, p. ej. "el plan de mañana", "quién va tarde". Claude abre la vista y no ve los datos.',
     hint_off: 'Elige una vista del menú. Las vistas muestran los datos directamente desde ROADNET, sin IA.',
   },
@@ -119,10 +124,10 @@ function renderMarkdown(md: string): string {
   return out.join('');
 }
 
-export default function ChatPanel() {
+/** Docked at the end side under the top bar; stays mounted while closed so the conversation is kept. */
+export default function ChatPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { language } = useLanguage();
   const s = STR[(language as Lang) in STR ? (language as Lang) : 'he'];
-  const [open, setOpen] = useState(false);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -138,15 +143,17 @@ export default function ChatPanel() {
   const [viewTools, setViewTools] = useState<ViewToolInfo[]>([]);
   const [showMenu, setShowMenu] = useState(false);
   const configLoaded = useRef(false);
+  // Until the server says which AI levels are allowed, no level is shown (not a misleading "No AI").
+  const [config, setConfig] = useState<'loading' | 'ready' | 'expired' | 'error'>('loading');
 
   useEffect(() => {
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
   }, [msgs.length, open]);
 
-  useEffect(() => {
-    if (!open || configLoaded.current) return;
+  const loadConfig = () => {
     configLoaded.current = true;
-    fetch('/api/chat/config')
+    setConfig('loading');
+    fetch('/api/chat/config', { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
       .then((c: { max: AiMode; views: ViewToolInfo[] }) => {
         const max = MODES.includes(c.max) ? c.max : 'off';
@@ -158,8 +165,17 @@ export default function ChatPanel() {
         setMaxMode(max);
         setMode(chosen);
         setViewTools(c.views || []);
+        setConfig('ready');
       })
-      .catch(() => { configLoaded.current = false; });
+      .catch((status) => {
+        configLoaded.current = false;
+        setConfig(status === 401 ? 'expired' : 'error');
+      });
+  };
+
+  useEffect(() => {
+    if (open && !configLoaded.current) loadConfig();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   const changeMode = (m: AiMode) => {
@@ -289,15 +305,13 @@ export default function ChatPanel() {
     setMsgs([]);
   };
 
-  if (!open)
-    return (
-      <button onClick={() => setOpen(true)} style={{ position: 'fixed', bottom: 24, left: 24, zIndex: 45, padding: '10px 16px', borderRadius: 22, border: 'none', background: 'var(--color-blue)', color: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', boxShadow: '0 2px 8px rgba(0,0,0,.25)' }}>
-        💬 {s.open}
-      </button>
-    );
-
   return (
-    <div style={{ position: 'fixed', bottom: 16, left: 16, zIndex: 50, width: wide ? 'min(1100px, calc(100vw - 32px))' : 'min(440px, calc(100vw - 32px))', height: wide ? 'calc(100vh - 32px)' : 'min(640px, calc(100vh - 32px))', display: 'flex', flexDirection: 'column', background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border-primary)', borderRadius: 12, boxShadow: '0 8px 30px rgba(0,0,0,.35)', overflow: 'hidden' }}>
+    <aside
+      aria-label={s.title}
+      aria-hidden={!open}
+      // A display class, not the hidden attribute: Tailwind's `flex` would override [hidden].
+      className={`fixed bottom-0 end-0 top-14 z-40 flex-col border-s border-line bg-surface text-ink shadow-lg ${open ? 'flex' : 'hidden'} ${wide ? 'w-[min(1100px,100vw)]' : 'w-[min(440px,100vw)]'}`}
+    >
       <style>{`
         .chat-md p { margin: 0 0 6px; line-height: 1.5; }
         .chat-md .chat-h { font-weight: 700; margin-top: 8px; }
@@ -310,36 +324,58 @@ export default function ChatPanel() {
         .chat-table th, .chat-table td { border: 1px solid var(--border-secondary); padding: 4px 6px; text-align: start; white-space: nowrap; }
         .chat-table th { background: var(--bg-tertiary); font-weight: 600; }
       `}</style>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'var(--bg-header)', borderBottom: '1px solid var(--border-primary)' }}>
-        <strong style={{ flex: 1, color: 'var(--text-header)' }}>{s.title}</strong>
-        <select value={mode} onChange={(e) => changeMode(e.target.value as AiMode)} disabled={busy} aria-label={s.modeLabel} title={s.modeLabel} style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-secondary)', borderRadius: 6, padding: '2px 4px', fontSize: 12 }}>
-          {MODES.filter((m) => RANK[m] <= RANK[maxMode]).map((m) => (
-            <option key={m} value={m}>{s[`mode_${m}`]}</option>
-          ))}
-        </select>
-        {mode !== 'off' && (
-          <button onClick={() => setShowMenu((v) => !v)} style={{ background: showMenu ? 'var(--bg-tertiary)' : 'none', border: '1px solid var(--border-secondary)', color: 'var(--text-secondary)', borderRadius: 6, padding: '3px 8px', fontSize: 12, cursor: 'pointer' }}>{s.views}</button>
+      <div className="flex items-center gap-1 border-b border-line px-3 py-2">
+        <Sparkles className="ms-1 size-4 text-accent" aria-hidden />
+        <strong className="flex-1 truncate px-1 text-sm font-semibold">{s.title}</strong>
+        {config === 'loading' && <Loader2 className="size-4 animate-spin text-ink-subtle" aria-label="…" />}
+        {config === 'ready' && (
+          <select
+            value={mode}
+            onChange={(e) => changeMode(e.target.value as AiMode)}
+            disabled={busy}
+            aria-label={s.modeLabel}
+            title={s.modeLabel}
+            className="h-8 rounded border border-line bg-surface px-2 text-[13px] text-ink focus:border-accent focus:outline-none focus:ring-2 focus:ring-focus"
+          >
+            {MODES.filter((m) => RANK[m] <= RANK[maxMode]).map((m) => (
+              <option key={m} value={m}>{s[`mode_${m}`]}</option>
+            ))}
+          </select>
         )}
-        <button onClick={() => setWide((w) => !w)} title={wide ? s.shrink : s.expand} aria-label={wide ? s.shrink : s.expand} style={{ background: 'none', border: '1px solid var(--border-secondary)', color: 'var(--text-secondary)', borderRadius: 6, padding: '3px 8px', fontSize: 12, cursor: 'pointer' }}>{wide ? '⤡' : '⤢'}</button>
-        <button onClick={reset} disabled={busy} style={{ background: 'none', border: '1px solid var(--border-secondary)', color: 'var(--text-secondary)', borderRadius: 6, padding: '3px 8px', fontSize: 12, cursor: 'pointer' }}>{s.newChat}</button>
-        <button onClick={() => setOpen(false)} aria-label={s.close} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: 18, cursor: 'pointer' }}>×</button>
+        {config === 'ready' && mode !== 'off' && <IconButton size="sm" label={s.views} icon={<LayoutGrid />} active={showMenu} onClick={() => setShowMenu((v) => !v)} />}
+        <IconButton size="sm" label={wide ? s.shrink : s.expand} icon={wide ? <Minimize2 /> : <Maximize2 />} onClick={() => setWide((w) => !w)} />
+        <IconButton size="sm" label={s.newChat} icon={<SquarePen />} onClick={reset} disabled={busy} />
+        <IconButton size="sm" label={s.close} icon={<X />} onClick={onClose} />
       </div>
-      {mode !== 'full' && (
-        <div style={{ padding: '6px 14px', fontSize: 12, background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-primary)' }}>
-          🔒 {s[`about_${mode}`]}
+      {(config === 'expired' || config === 'error') && (
+        <div className="flex items-center gap-2 border-b border-line bg-danger-soft px-4 py-2 text-xs text-ink">
+          <XCircle className="size-3.5 shrink-0 text-danger" aria-hidden />
+          <span className="flex-1">{config === 'expired' ? s.expired : s.configError}</span>
+          {config === 'error' && (
+            <button type="button" onClick={loadConfig} className="font-medium text-accent hover:underline">
+              {s.retry}
+            </button>
+          )}
         </div>
       )}
-      <div ref={listRef} style={{ flex: 1, overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {msgs.length === 0 && <div style={{ color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.5 }}>{mode === 'full' ? s.hint : s[`hint_${mode}`]}</div>}
+      {config === 'ready' && mode !== 'full' && (
+        <div className="flex items-center gap-2 border-b border-line bg-surface-muted px-4 py-2 text-xs text-ink-muted">
+          <ShieldCheck className="size-3.5 shrink-0 text-success" aria-hidden />
+          {s[`about_${mode}`]}
+        </div>
+      )}
+      <div ref={listRef} className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
+        {msgs.length === 0 && <p className="rounded-lg bg-surface-muted p-3 text-[13px] leading-relaxed text-ink-muted">{mode === 'full' ? s.hint : s[`hint_${mode}`]}</p>}
         {msgs.map((m, i) =>
           m.role === 'user' ? (
-            <div key={i} style={{ alignSelf: 'flex-start', maxWidth: '85%', background: 'var(--color-blue)', color: '#fff', padding: '8px 12px', borderRadius: 12, fontSize: 14, whiteSpace: 'pre-wrap' }}>{m.text}</div>
+            <div key={i} className="max-w-[85%] self-start whitespace-pre-wrap rounded-lg rounded-ss-sm bg-primary px-3 py-2 text-sm text-primary-fg">{m.text}</div>
           ) : (
-            <div key={i} style={{ alignSelf: 'stretch', fontSize: 14 }}>
-              {m.saved && <div style={{ fontSize: 11, color: 'var(--text-tertiary)', margin: '2px 0' }}>{s.saved}</div>}
+            <div key={i} className="self-stretch text-sm">
+              {m.saved && <div className="mb-1 text-[11px] text-ink-subtle">{s.saved}</div>}
               {m.tools.map((t, j) => (
-                <div key={j} style={{ fontSize: 12, color: 'var(--text-tertiary)', margin: '2px 0' }}>
-                  {t.done ? (t.ok ? '✓' : '✗') : '⏳'} {s.running}: <code dir="ltr">{t.name}</code>
+                <div key={j} className="my-0.5 flex items-center gap-1.5 text-xs text-ink-subtle">
+                  {t.done ? t.ok ? <Check className="size-3.5 text-success" aria-hidden /> : <XCircle className="size-3.5 text-danger" aria-hidden /> : <Loader2 className="size-3.5 animate-spin" aria-hidden />}
+                  {s.running}: <code dir="ltr" className="rounded bg-surface-muted px-1">{t.name}</code>
                 </div>
               ))}
               {m.parts.map((p, j) =>
@@ -348,21 +384,22 @@ export default function ChatPanel() {
                 ) : p.kind === 'view' ? (
                   <ChatViewFrame key={j} view={p.view} mode={mode} lang={language} onAsk={askFromView} onFile={openFileFrom(i)} failedText={s.viewFailed} />
                 ) : (
-                  <a key={j} href={fileUrl(p.name)} target="_blank" rel="noopener" style={{ display: 'inline-block', margin: '4px 0', fontSize: 13, color: 'var(--color-blue-light)' }}>
-                    📄 {s.openFile}: <span dir="ltr">{p.name}</span>
+                  <a key={j} href={fileUrl(p.name)} target="_blank" rel="noopener" className="my-1 inline-flex items-center gap-1.5 text-[13px] text-info hover:underline">
+                    <FileText className="size-4" aria-hidden />
+                    {s.openFile}: <span dir="ltr">{p.name}</span>
                   </a>
                 )
               )}
-              {!m.text && !m.error && busy && i === msgs.length - 1 && <div style={{ color: 'var(--text-tertiary)', fontSize: 13 }}>…</div>}
-              {m.error && <div style={{ color: '#e5534b', fontSize: 13 }}>{m.error}</div>}
+              {!m.text && !m.error && busy && i === msgs.length - 1 && <Loader2 className="size-4 animate-spin text-ink-subtle" aria-label="…" />}
+              {m.error && <div className="mt-1 rounded bg-danger-soft px-3 py-2 text-[13px] text-danger">{m.error}</div>}
             </div>
           )
         )}
       </div>
-      {(mode === 'off' || showMenu) && (
+      {config === 'ready' && (mode === 'off' || showMenu) && (
         <ChatViewsMenu views={viewTools} lang={(language as Lang) in STR ? (language as Lang) : 'he'} busy={busy} onOpen={openView} strings={{ pick: s.pick, open: s.openView, required: s.required }} />
       )}
-      {mode !== 'off' && <div style={{ display: 'flex', gap: 8, padding: 10, borderTop: '1px solid var(--border-primary)' }}>
+      {config === 'ready' && mode !== 'off' && <div className="flex gap-2 border-t border-line p-3">
         <textarea
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -375,12 +412,13 @@ export default function ChatPanel() {
           rows={2}
           maxLength={4000}
           placeholder={s.placeholder}
-          style={{ flex: 1, resize: 'none', background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-secondary)', borderRadius: 8, padding: '8px 10px', fontSize: 14, fontFamily: 'inherit' }}
+          aria-label={s.placeholder}
+          className="flex-1 resize-none rounded border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-subtle focus:border-accent focus:outline-none focus:ring-2 focus:ring-focus"
         />
-        <button onClick={() => send()} disabled={busy || !input.trim()} style={{ alignSelf: 'stretch', padding: '0 16px', borderRadius: 8, border: 'none', background: busy || !input.trim() ? 'var(--bg-tertiary)' : 'var(--color-blue)', color: '#fff', fontWeight: 600, cursor: busy ? 'default' : 'pointer' }}>
+        <Button variant="primary" className="h-auto self-stretch" icon={<SendHorizontal className="rtl:-scale-x-100" />} onClick={() => send()} disabled={busy || !input.trim()}>
           {s.send}
-        </button>
+        </Button>
       </div>}
-    </div>
+    </aside>
   );
 }

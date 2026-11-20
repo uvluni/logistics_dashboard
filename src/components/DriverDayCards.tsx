@@ -1,33 +1,57 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { AlertTriangle, CheckCircle2, Info, XCircle } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
 import { t } from '@/i18n/translations';
 import type { RouteActual, StopActual } from '@/lib/actualsComparison';
 import { GROUP_COLOR, attentionFor, hoursMinutes, signed, type Group, type Attention } from '@/lib/pvaGroups';
+import { Badge, type Tone } from '@/components/ui/Badge';
+import { Card, CardHeader } from '@/components/ui/Card';
+import { cn } from '@/components/ui/cn';
 
-const LEVEL_COLOR: Record<Attention['level'], string> = {
-  high: '#dc2626',
-  medium: '#ea580c',
-  info: '#768390',
-  good: '#0969da',
+/** Badge tone for each plan-vs-actual group (the timeline and card accents keep GROUP_COLOR). */
+export const GROUP_TONE: Record<Group, Tone> = {
+  suspended: 'warning',
+  overdue: 'danger',
+  late: 'warning',
+  on_track: 'success',
+  ahead: 'info',
+  not_started: 'neutral',
+  completed: 'success',
 };
-const LEVEL_ICON: Record<Attention['level'], string> = { high: '⛔', medium: '⚠️', info: 'ℹ️', good: '✅' };
+
+/** Text color for a value shown in a group's tone (deviation minutes and the like). */
+export const TONE_TEXT: Record<Tone, string> = {
+  neutral: 'text-ink-muted',
+  success: 'text-success',
+  warning: 'text-warning',
+  danger: 'text-danger',
+  info: 'text-info',
+};
+
+const LEVEL: Record<Attention['level'], { icon: ReactNode; className: string }> = {
+  high: { icon: <XCircle aria-hidden />, className: 'text-danger' },
+  medium: { icon: <AlertTriangle aria-hidden />, className: 'text-warning' },
+  info: { icon: <Info aria-hidden />, className: 'text-ink-subtle' },
+  good: { icon: <CheckCircle2 aria-hidden />, className: 'text-info' },
+};
 
 function fill(template: string, vars: Record<string, string | number>): string {
   return template.replace(/\{(\w+)\}/g, (_, k) => String(vars[k] ?? ''));
 }
 
-function stopColor(s: StopActual, routeColor: string): React.CSSProperties {
-  switch (s.status) {
+/** Look of one stop segment: classes for the fixed states, an inline color for the route's own color. */
+function stopLook(status: StopActual['status'], routeColor: string): { className: string; style?: CSSProperties } {
+  switch (status) {
     case 'completed':
-      return { background: routeColor };
+      return { className: '', style: { background: routeColor } };
     case 'at_stop':
-      return { background: 'transparent', boxShadow: `inset 0 0 0 2px ${routeColor}` };
+      return { className: 'bg-transparent', style: { boxShadow: `inset 0 0 0 2px ${routeColor}` } };
     case 'late':
-      return { background: 'repeating-linear-gradient(45deg, #dc2626 0 3px, rgba(220,38,38,0.25) 3px 6px)' };
+      return { className: 'bg-[repeating-linear-gradient(45deg,var(--danger)_0_3px,var(--danger-soft)_3px_6px)]' };
     default:
-      return { background: 'var(--border-primary)' };
+      return { className: 'bg-line' };
   }
 }
 
@@ -42,9 +66,8 @@ interface Hover {
 }
 
 export default function DriverDayCards({ rows, hm }: { rows: Row[]; hm: (ms: number | null) => string }) {
-  const { language, isRTL } = useLanguage();
+  const { language } = useLanguage();
   const [hover, setHover] = useState<Hover | null>(null);
-  const align = isRTL ? 'right' : 'left';
 
   // Close the tooltip when the page scrolls (its position is fixed to the viewport).
   useEffect(() => {
@@ -58,29 +81,26 @@ export default function DriverDayCards({ rows, hm }: { rows: Row[]; hm: (ms: num
   const hovered = hover ? rows.find((x) => x.r.routeId === hover.routeId) : undefined;
 
   return (
-    <div style={{ marginBottom: 24 }}>
-      <style>{`
-        .ddc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
-        .ddc-card { transition: transform .12s ease, box-shadow .12s ease; outline: none; }
-        .ddc-card:hover, .ddc-card:focus-visible { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,.18); }
-        @keyframes ddc-pulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
-        .ddc-at-stop { animation: ddc-pulse 1.4s ease-in-out infinite; }
-        @media (prefers-reduced-motion: reduce) { .ddc-at-stop { animation: none; } .ddc-card { transition: none; } }
-      `}</style>
+    <Card>
+      <CardHeader
+        title={t('pva.cards.title', language)}
+        count={rows.length}
+        actions={
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-muted">
+            {(['completed', 'at_stop', 'late', 'upcoming'] as const).map((st) => {
+              const look = stopLook(st, GROUP_COLOR.on_track);
+              return (
+                <span key={st} className="inline-flex items-center gap-1.5">
+                  <span className={cn('h-2 w-4 rounded-sm', look.className)} style={look.style} aria-hidden />
+                  {t(`pva.stop.${st}`, language)}
+                </span>
+              );
+            })}
+          </div>
+        }
+      />
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--text-primary)' }}>{t('pva.cards.title', language)}</h3>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, fontSize: 12, color: 'var(--text-secondary)' }}>
-          {(['completed', 'at_stop', 'late', 'upcoming'] as const).map((st) => (
-            <span key={st} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ width: 16, height: 8, borderRadius: 2, display: 'inline-block', ...stopColor({ status: st } as StopActual, GROUP_COLOR.on_track) }} />
-              {t(`pva.stop.${st}`, language)}
-            </span>
-          ))}
-        </div>
-      </div>
-
-      <div className="ddc-grid">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(260px,1fr))] gap-3 p-4">
         {rows.map(({ r, g }) => {
           const color = GROUP_COLOR[g];
           const done = r.stops.filter((s) => s.status === 'completed').length;
@@ -93,7 +113,6 @@ export default function DriverDayCards({ rows, hm }: { rows: Row[]; hm: (ms: num
           return (
             <div
               key={r.routeId}
-              className="ddc-card"
               tabIndex={0}
               role="button"
               aria-label={`${t('kpi.route', language)} ${r.routeId}: ${t(`pva.group.${g}`, language)}, ${done}/${total} ${t('pva.stops', language)}`}
@@ -102,55 +121,49 @@ export default function DriverDayCards({ rows, hm }: { rows: Row[]; hm: (ms: num
               onFocus={(e) => open(r.routeId, e.currentTarget)}
               onBlur={() => setHover(null)}
               onClick={(e) => (hover?.routeId === r.routeId ? setHover(null) : open(r.routeId, e.currentTarget))}
-              style={{
-                backgroundColor: 'var(--bg-card)',
-                border: '1px solid var(--border-primary)',
-                borderInlineStart: `5px solid ${color}`,
-                borderRadius: 8,
-                padding: '12px 14px',
-                cursor: 'pointer',
-                textAlign: align,
-              }}
+              className={cn(
+                'min-w-0 cursor-pointer rounded-lg border border-s-4 border-line bg-surface px-3.5 py-3 text-start',
+                'transition-[transform,box-shadow] duration-150 hover:-translate-y-0.5 hover:shadow',
+                'focus-visible:-translate-y-0.5 focus-visible:shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus'
+              )}
+              style={{ borderInlineStartColor: color }}
             >
               {/* Header */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-primary)' }}>{r.routeId}</span>
-                <span style={{ filter: 'blur(4px)', color: 'var(--text-secondary)', fontSize: 13, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{r.driverName}</span>
-                {r.vehicle && (
-                  <span style={{ fontSize: 11, color: 'var(--text-secondary)', border: '1px solid var(--border-primary)', borderRadius: 4, padding: '0 6px', whiteSpace: 'nowrap' }}>{r.vehicle}</span>
-                )}
-                <span style={{ marginInlineStart: 'auto', fontSize: 11, fontWeight: 700, color: 'white', background: color, borderRadius: 999, padding: '2px 9px', whiteSpace: 'nowrap' }}>
+              <div className="mb-2.5 flex min-w-0 items-center gap-2">
+                <span className="text-base font-semibold text-ink tabular">{r.routeId}</span>
+                <span className="sensitive min-w-0 truncate text-[13px] text-ink-muted">{r.driverName}</span>
+                {r.vehicle && <span className="whitespace-nowrap rounded-sm border border-line px-1.5 text-[11px] text-ink-muted">{r.vehicle}</span>}
+                <Badge tone={GROUP_TONE[g]} className="ms-auto">
                   {t(`pva.group.${g}`, language)}
-                </span>
+                </Badge>
               </div>
 
               {/* Stops progress */}
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 6 }}>
-                <span style={{ fontSize: 26, fontWeight: 700, color: 'var(--text-primary)', lineHeight: 1 }}>
-                  {done}<span style={{ fontSize: 16, color: 'var(--text-tertiary)', fontWeight: 600 }}>/{total}</span>
+              <div className="mb-1.5 flex items-baseline gap-1.5">
+                <span className="text-2xl font-semibold leading-none text-ink tabular">
+                  {done}
+                  <span className="text-base font-medium text-ink-subtle">/{total}</span>
                 </span>
-                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{t('pva.cards.stops_done', language)}</span>
-                <span style={{ marginInlineStart: 'auto', fontSize: 12, color: 'var(--text-tertiary)' }}>{pct}%</span>
+                <span className="text-xs text-ink-muted">{t('pva.cards.stops_done', language)}</span>
+                <span className="ms-auto text-xs text-ink-subtle tabular">{pct}%</span>
               </div>
-              <div style={{ display: 'flex', gap: 3, marginBottom: 10 }} aria-hidden>
-                {r.stops.map((s, i) => (
-                  <span
-                    key={i}
-                    className={s.status === 'at_stop' ? 'ddc-at-stop' : undefined}
-                    style={{ flex: 1, height: 10, borderRadius: 2, minWidth: 4, ...stopColor(s, color) }}
-                  />
-                ))}
+              <div className="mb-2.5 flex gap-[3px]" aria-hidden>
+                {r.stops.map((s, i) => {
+                  const look = stopLook(s.status, color);
+                  return <span key={i} className={cn('h-2.5 min-w-1 flex-1 rounded-sm', look.className, s.status === 'at_stop' && 'animate-pulse')} style={look.style} />;
+                })}
               </div>
 
               {/* Footer */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--text-secondary)' }}>
-                <span>
-                  {t('pva.cards.end', language)} <b style={{ color: 'var(--text-primary)' }}>{hm(r.projectedEnd)}</b>
-                  {showDev && <b style={{ color }}> ({signed(dev)}′)</b>}
+              <div className="flex items-center gap-2 text-xs text-ink-muted">
+                <span className="tabular">
+                  {t('pva.cards.end', language)} <b className="font-semibold text-ink">{hm(r.projectedEnd)}</b>
+                  {showDev && <b className={cn('font-semibold', TONE_TEXT[GROUP_TONE[g]])}> ({signed(dev)}′)</b>}
                 </span>
                 {warnings > 0 && (
-                  <span style={{ marginInlineStart: 'auto', fontWeight: 700, color: LEVEL_COLOR.medium, whiteSpace: 'nowrap' }} title={t('pva.tt.attention', language)}>
-                    ⚠ {warnings}
+                  <span className="ms-auto inline-flex items-center gap-1 whitespace-nowrap font-semibold text-warning" title={t('pva.tt.attention', language)}>
+                    <AlertTriangle className="size-3.5" aria-hidden />
+                    <span className="tabular">{warnings}</span>
                   </span>
                 )}
               </div>
@@ -160,12 +173,12 @@ export default function DriverDayCards({ rows, hm }: { rows: Row[]; hm: (ms: num
       </div>
 
       {hover && hovered && <Tooltip row={hovered} rect={hover.rect} hm={hm} />}
-    </div>
+    </Card>
   );
 }
 
 function Tooltip({ row, rect, hm }: { row: Row; rect: DOMRect; hm: (ms: number | null) => string }) {
-  const { language, isRTL } = useLanguage();
+  const { language } = useLanguage();
   const { r, g } = row;
   const color = GROUP_COLOR[g];
   const W = 320;
@@ -182,54 +195,52 @@ function Tooltip({ row, rect, hm }: { row: Row; rect: DOMRect; hm: (ms: number |
   const att = attentionFor(r, g);
   const kg = (n: number) => n.toLocaleString(language === 'he' ? 'he-IL' : language === 'es' ? 'es-ES' : 'en-US');
 
-  const line = (label: string, value: React.ReactNode) => (
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '3px 0' }}>
-      <span style={{ color: 'var(--text-secondary)' }}>{label}</span>
-      <span style={{ color: 'var(--text-primary)', fontWeight: 600, textAlign: 'end' }}>{value}</span>
+  const line = (label: string, value: ReactNode) => (
+    <div className="flex justify-between gap-3 py-[3px]">
+      <span className="text-ink-muted">{label}</span>
+      <span className="text-end font-medium text-ink tabular">{value}</span>
     </div>
   );
-  const delta = (n: number | null) => (n != null && Math.abs(n) >= 1 ? <span style={{ color: n > 0 ? '#ea580c' : '#16a34a' }}> ({signed(n)}′)</span> : null);
+  const delta = (n: number | null) => (n != null && Math.abs(n) >= 1 ? <span className={n > 0 ? 'text-warning' : 'text-success'}> ({signed(n)}′)</span> : null);
 
   return (
     <div
       role="tooltip"
-      dir={isRTL ? 'rtl' : 'ltr'}
-      style={{
-        position: 'fixed', zIndex: 50, left, top, width: W,
-        transform: below ? undefined : 'translateY(-100%)',
-        backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-primary)', borderTop: `4px solid ${color}`,
-        borderRadius: 8, boxShadow: '0 12px 32px rgba(0,0,0,.35)', padding: '12px 14px', fontSize: 12.5, pointerEvents: 'none',
-        textAlign: isRTL ? 'right' : 'left',
-      }}
+      className="pointer-events-none fixed z-50 w-[320px] rounded-lg border border-t-4 border-line bg-surface px-3.5 py-3 text-start text-[12.5px] shadow-lg"
+      style={{ left, top, transform: below ? undefined : 'translateY(-100%)', borderTopColor: color }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <b style={{ fontSize: 15, color: 'var(--text-primary)' }}>{t('kpi.route', language)} {r.routeId}</b>
-        <span style={{ filter: 'blur(4px)', color: 'var(--text-secondary)' }}>{r.driverName}</span>
-        <span style={{ marginInlineStart: 'auto', color, fontWeight: 700 }}>{t(`pva.group.${g}`, language)}</span>
+      <div className="mb-2 flex min-w-0 items-center gap-2">
+        <b className="text-[15px] font-semibold text-ink">
+          {t('kpi.route', language)} <span className="tabular">{r.routeId}</span>
+        </b>
+        <span className="sensitive min-w-0 truncate text-ink-muted">{r.driverName}</span>
+        <Badge tone={GROUP_TONE[g]} className="ms-auto">
+          {t(`pva.group.${g}`, language)}
+        </Badge>
       </div>
 
       {line(t('pva.tt.departure', language), <>{hm(r.plannedStart)} → {r.actualStart != null ? hm(r.actualStart) : t('pva.tt.not_yet', language)}{r.actualStart != null && delta(r.startDelayMinutes)}</>)}
       {line(t('pva.tt.finish', language), <>{hm(r.plannedEnd)} → {hm(r.projectedEnd)}{delta(r.endDeviationMinutes)}</>)}
       {line(
         t('pva.tt.workday', language),
-        <span style={{ color: r.projectedWorkMinutes != null && r.projectedWorkMinutes > r.workDayMinutes ? '#ea580c' : undefined }}>
+        <span className={r.projectedWorkMinutes != null && r.projectedWorkMinutes > r.workDayMinutes ? 'text-warning' : undefined}>
           {hoursMinutes(r.projectedWorkMinutes)} / {hoursMinutes(r.workDayMinutes)}
         </span>
       )}
-      {line(t('pva.tt.stops', language), <>{done}/{r.stops.length}{late > 0 && <span style={{ color: '#dc2626' }}> · {late} {t('pva.stop.late', language)}</span>}</>)}
+      {line(t('pva.tt.stops', language), <>{done}/{r.stops.length}{late > 0 && <span className="text-danger"> · {late} {t('pva.stop.late', language)}</span>}</>)}
       {r.plannedWeightKg > 0 && line(t('pva.tt.weight', language), <>{kg(r.deliveredWeightKg)} / {kg(r.plannedWeightKg)} {t('pva.tt.kg', language)}</>)}
       {r.plannedDistanceKm != null && line(t('pva.tt.distance', language), <>{r.plannedDistanceKm} {t('pva.tt.km', language)}</>)}
       {r.vehicle && line(t('pva.tt.vehicle', language), r.vehicle)}
 
       {(atStop || next) && (
-        <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border-primary)' }}>
+        <div className="mt-2 border-t border-line pt-2">
           {atStop ? (
             <div>
-              <span style={{ color: 'var(--text-secondary)' }}>{t('pva.tt.at_stop_now', language)}: </span>
-              <b style={{ color: 'var(--text-primary)' }}>{atStop.customer}</b>
-              {atStop.city && <span style={{ color: 'var(--text-secondary)' }}>, {atStop.city}</span>}
+              <span className="text-ink-muted">{t('pva.tt.at_stop_now', language)}: </span>
+              <b className="font-semibold text-ink">{atStop.customer}</b>
+              {atStop.city && <span className="text-ink-muted">, {atStop.city}</span>}
               {atStop.minutesAtStop != null && (
-                <div style={{ color: 'var(--text-secondary)', marginTop: 2 }}>
+                <div className="mt-0.5 text-ink-muted">
                   {fill(t('pva.tt.at_stop_for', language), { n: atStop.minutesAtStop, p: atStop.plannedServiceMinutes ?? '—' })}
                 </div>
               )}
@@ -237,10 +248,10 @@ function Tooltip({ row, rect, hm }: { row: Row; rect: DOMRect; hm: (ms: number |
           ) : (
             next && (
               <div>
-                <span style={{ color: 'var(--text-secondary)' }}>{t('pva.tt.next_stop', language)}: </span>
-                <b style={{ color: 'var(--text-primary)' }}>{next.customer}</b>
-                {next.city && <span style={{ color: 'var(--text-secondary)' }}>, {next.city}</span>}
-                <span style={{ color: next.status === 'late' ? '#dc2626' : 'var(--text-secondary)' }}> · {t('pva.tt.planned_at', language)} {hm(next.plannedArrival)}</span>
+                <span className="text-ink-muted">{t('pva.tt.next_stop', language)}: </span>
+                <b className="font-semibold text-ink">{next.customer}</b>
+                {next.city && <span className="text-ink-muted">, {next.city}</span>}
+                <span className={next.status === 'late' ? 'text-danger' : 'text-ink-muted'}> · {t('pva.tt.planned_at', language)} {hm(next.plannedArrival)}</span>
               </div>
             )
           )}
@@ -248,11 +259,11 @@ function Tooltip({ row, rect, hm }: { row: Row; rect: DOMRect; hm: (ms: number |
       )}
 
       {att.length > 0 && (
-        <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border-primary)' }}>
-          <div style={{ fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>{t('pva.tt.attention', language)}</div>
+        <div className="mt-2 border-t border-line pt-2">
+          <div className="mb-1 font-semibold text-ink">{t('pva.tt.attention', language)}</div>
           {att.map((a, i) => (
-            <div key={i} style={{ display: 'flex', gap: 6, padding: '2px 0', color: LEVEL_COLOR[a.level] }}>
-              <span aria-hidden>{LEVEL_ICON[a.level]}</span>
+            <div key={i} className="flex gap-1.5 py-0.5 text-ink">
+              <span className={cn('mt-px shrink-0 [&>svg]:size-3.5', LEVEL[a.level].className)}>{LEVEL[a.level].icon}</span>
               <span>{fill(t(a.key, language), a.vars)}</span>
             </div>
           ))}

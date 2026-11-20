@@ -53,13 +53,19 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await response.json();
+    if (typeof data?.token !== 'string' || !data.token) {
+      return NextResponse.json({ error: 'Authentication failed' }, { status: 502 });
+    }
 
-    const res = NextResponse.json(data);
+    // The token goes only into the httpOnly cookie: page scripts never see it.
+    const res = NextResponse.json({ success: true });
     res.cookies.set('roadnet_token', data.token, {
       httpOnly: true,
       secure: shouldUseSecureCookie(request),
       sameSite: 'strict',
-      maxAge: 86400,
+      path: '/',
+      // No maxAge: a browser-session cookie, gone when the browser closes. ROADNET's own token
+      // expiry still applies, and /api/auth/check asks ROADNET whether the token is valid.
     });
 
     // Clear CSRF token after use

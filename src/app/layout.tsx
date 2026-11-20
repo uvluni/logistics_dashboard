@@ -1,36 +1,38 @@
 import type { Metadata } from 'next';
+import { Heebo } from 'next/font/google';
 import './globals.css';
 import Providers from '@/components/Providers';
 
+// Heebo is Rasner's brand font and covers Hebrew and Latin.
+const heebo = Heebo({ subsets: ['hebrew', 'latin'], variable: '--font-heebo', display: 'swap' });
+
 export const metadata: Metadata = {
-  title: 'ROADNET',
-  description: 'Distribution Planning Report',
-  icons: {
-    icon: '/favicon.svg',
-  },
+  title: 'ROADNET · Rasner',
+  description: 'Distribution planning and execution dashboard',
+  icons: { icon: '/favicon.svg' },
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+// Applies the saved theme, presentation mode and language direction before the first paint.
+const bootScript = `(function () {
+  try {
+    var p = localStorage.getItem('theme') || 'light';
+    var dark = p === 'dark' || (p === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    var d = document.documentElement;
+    d.setAttribute('data-theme', dark ? 'dark' : 'light');
+    d.setAttribute('data-presentation', localStorage.getItem('presentation-mode') === 'off' ? 'off' : 'on');
+    var lang = localStorage.getItem('language') || 'he';
+    d.lang = lang;
+    d.dir = lang === 'he' ? 'rtl' : 'ltr';
+  } catch (e) {}
+})();`;
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html suppressHydrationWarning>
+    <html lang="he" dir="rtl" className={heebo.variable} suppressHydrationWarning>
       <head>
-        <meta charSet="utf-8" />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              (function() {
-                const theme = localStorage.getItem('theme') || 'dark';
-                document.documentElement.setAttribute('data-theme', theme);
-              })();
-            `,
-          }}
-        />
+        <script dangerouslySetInnerHTML={{ __html: bootScript }} />
       </head>
-      <body className="bg-gray-50" suppressHydrationWarning>
+      <body suppressHydrationWarning>
         <Providers>{children}</Providers>
       </body>
     </html>

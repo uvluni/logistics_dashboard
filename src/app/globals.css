@@ -2,70 +2,155 @@
 @tailwind components;
 @tailwind utilities;
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+/* ==========================================================================
+   Design tokens. Rasner brand: petrol navy #043D5C / #072E4B, cyan #00A0E3,
+   green #98B935, light grey-blue #EDF1F3. Components use the semantic tokens
+   (surface, text, border, primary ...) so a theme only redefines this block.
+   ========================================================================== */
+:root {
+  color-scheme: light;
+
+  /* Brand (fixed in every theme) */
+  --brand-navy: #043d5c;
+  --brand-navy-dark: #072e4b;
+  --brand-cyan: #00a0e3;
+  --brand-green: #98b935;
+
+  /* Surfaces */
+  --app-bg: #edf1f3;
+  --surface: #ffffff;
+  --surface-muted: #f6f8fa;
+  --surface-hover: #f0f4f7;
+  --surface-selected: #e6f4fb;
+  --topbar-bg: #072e4b;
+  --topbar-fg: #ffffff;
+  --topbar-muted: rgba(255, 255, 255, 0.72);
+  --topbar-hover: rgba(255, 255, 255, 0.1);
+
+  /* Lines and text */
+  --border: #dce3e8;
+  --border-strong: #c5d0d8;
+  --text: #0f2433;
+  --text-muted: #4a5d6b;
+  --text-subtle: #7a8a96;
+
+  /* Actions */
+  --primary: #043d5c;
+  --primary-hover: #072e4b;
+  --primary-fg: #ffffff;
+  --accent: #00a0e3;
+  --focus-ring: rgba(0, 160, 227, 0.45);
+
+  /* Status */
+  --success: #1f8a4c;
+  --success-soft: #e5f4ea;
+  --warning: #b45309;
+  --warning-soft: #fdf1e3;
+  --danger: #c62828;
+  --danger-soft: #fdeaea;
+  --info: #0077b6;
+  --info-soft: #e3f2fb;
+
+  /* Shape and depth */
+  --radius-sm: 6px;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --shadow-sm: 0 1px 2px rgba(15, 36, 51, 0.06);
+  --shadow: 0 2px 8px rgba(15, 36, 51, 0.08);
+  --shadow-lg: 0 12px 32px rgba(15, 36, 51, 0.18);
+
+  /* Earlier names, kept so existing screens and the chat views follow the theme */
+  --bg-primary: var(--app-bg);
+  --bg-secondary: var(--surface);
+  --bg-tertiary: var(--surface-muted);
+  --bg-card: var(--surface);
+  --bg-metric: var(--surface-muted);
+  --bg-header: var(--surface);
+  --border-primary: var(--border);
+  --border-secondary: var(--border);
+  --border-metric: var(--border);
+  --text-primary: var(--text);
+  --text-secondary: var(--text-muted);
+  --text-tertiary: var(--text-subtle);
+  --text-header: var(--text);
+  --color-blue: var(--primary);
+  --color-blue-light: var(--info);
+  --color-data: var(--info);
+  --color-green: var(--success);
+  --color-orange: var(--warning);
+  --color-red: var(--danger);
 }
 
+html[data-theme='dark'] {
+  color-scheme: dark;
+
+  --app-bg: #0b1620;
+  --surface: #111f2b;
+  --surface-muted: #162735;
+  --surface-hover: #1b2f3f;
+  --surface-selected: #12344a;
+  --topbar-bg: #06121c;
+  --topbar-fg: #e6edf3;
+  --topbar-muted: rgba(230, 237, 243, 0.68);
+  --topbar-hover: rgba(255, 255, 255, 0.08);
+
+  --border: #22374a;
+  --border-strong: #2e4860;
+  --text: #e6edf3;
+  --text-muted: #a5b4c2;
+  --text-subtle: #6f8394;
+
+  /* Navy disappears on a dark surface: actions use the brand cyan */
+  --primary: #0a8fcc;
+  --primary-hover: #00a0e3;
+  --primary-fg: #ffffff;
+  --accent: #33b5ea;
+  --focus-ring: rgba(51, 181, 234, 0.5);
+
+  --success: #4cc27f;
+  --success-soft: rgba(76, 194, 127, 0.14);
+  --warning: #f0a33a;
+  --warning-soft: rgba(240, 163, 58, 0.14);
+  --danger: #f06a6a;
+  --danger-soft: rgba(240, 106, 106, 0.14);
+  --info: #4fb8ea;
+  --info-soft: rgba(79, 184, 234, 0.14);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55);
+}
+
+/* ==========================================================================
+   Base
+   ========================================================================== */
 html {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  font-family: var(--font-heebo), 'Segoe UI', Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-:root {
-  /* Light theme - Clean & professional */
-  --bg-primary: #fafbfc;
-  --bg-secondary: #ffffff;
-  --bg-tertiary: #f6f8fa;
-  --bg-card: #ffffff;
-  --bg-metric: #f6f8fa;
-  --bg-header: #ffffff;
-
-  --border-primary: #d0d7de;
-  --border-secondary: #d0d7de;
-  --border-metric: #d0d7de;
-
-  --text-primary: #0d1117;
-  --text-secondary: #57606a;
-  --text-tertiary: #768390;
-  --text-header: #0d1117;
-
-  --color-blue: #0969da;
-  --color-blue-light: #0969da;
-  --color-data: #0969da;
-}
-
-html[data-theme="dark"] {
-  /* Dark theme - Professional & stable */
-  --bg-primary: #0d1117;
-  --bg-secondary: #161b22;
-  --bg-tertiary: #0d1117;
-  --bg-card: #161b22;
-  --bg-metric: #0d1117;
-  --bg-header: #161b22;
-
-  --border-primary: #30363d;
-  --border-secondary: #30363d;
-  --border-metric: #30363d;
-
-  --text-primary: #c9d1d9;
-  --text-secondary: #8b949e;
-  --text-tertiary: #6e7681;
-  --text-header: #f0f6fc;
-
-  --color-blue: #58a6ff;
-  --color-blue-light: #58a6ff;
-  --color-data: #58a6ff;
-}
-
 body {
-  background-color: var(--bg-primary);
-  color: var(--text-primary);
-  transition: background-color 0.3s ease, color 0.3s ease;
+  background-color: var(--app-bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* Numbers line up in tables and tiles */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Presentation mode: personal names are blurred (for demos and screenshots) */
+html[data-presentation='on'] .sensitive {
+  filter: blur(4px);
+  user-select: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 input::-webkit-outer-spin-button,
@@ -78,50 +163,36 @@ input[type='number'] {
   -moz-appearance: textfield;
 }
 
-/* React DatePicker RTL adjustments */
-.react-datepicker__input-container {
-  position: relative;
-  display: block;
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+.animate-fade-in {
+  animation: fade-in 0.2s ease-out;
 }
 
-.react-datepicker {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+/* Loading placeholders: hidden for the first 300 ms, then a slow, low-contrast breathing */
+@keyframes skeleton-in {
+  to { opacity: 1; }
+}
+@keyframes skeleton-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+.skeleton {
+  opacity: 0;
+  animation: skeleton-in 0.25s ease-out 0.3s forwards, skeleton-breathe 1.8s ease-in-out 0.55s infinite;
 }
 
-.react-datepicker__header {
-  background-color: #2563eb;
-  color: white;
-  border-bottom: none;
-}
-
-.react-datepicker__day--selected {
-  background-color: #2563eb;
-}
-
-.react-datepicker__day--keyboard-selected {
-  background-color: #3b82f6;
-}
-
-.react-datepicker__day:hover {
-  background-color: #dbeafe;
-}
-
-/* Smooth entrance animation for Airtable verification table */
-@keyframes fadeInSlideUp {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
   }
 }
 
-.airtable-entrance {
-  animation: fadeInSlideUp 0.6s ease-out;
-}
-
-.fade-in-up {
-  animation: fadeInSlideUp 0.6s ease-out;
+/* Leaflet tooltips follow the page direction */
+html[dir='rtl'] .leaflet-tooltip {
+  direction: rtl;
+  text-align: right;
 }

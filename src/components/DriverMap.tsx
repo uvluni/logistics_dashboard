@@ -6,23 +6,42 @@
 import 'leaflet/dist/leaflet.css';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Map as LeafletMap } from 'leaflet';
+import { MapPin, MapPinned, Navigation, RefreshCw, Satellite } from 'lucide-react';
 import { useLanguage } from '@/context/LanguageContext';
-import DateInput from '@/components/DateInput';
 import { t } from '@/i18n/translations';
+import { LOCALE } from '@/i18n/messages';
+import { formatLongDate } from '@/lib/dates';
 import type { DriverPositions, EventType } from '@/lib/driverPositions';
+import { PageHeader } from '@/components/layout/PageHeader';
+import { IconButton } from '@/components/ui/Button';
+import { Card, CardHeader } from '@/components/ui/Card';
+import { Stat } from '@/components/ui/Stat';
+import { Alert, EmptyState, Skeleton } from '@/components/ui/Feedback';
+import { cn } from '@/components/ui/cn';
 
 const TIME_ZONE = 'Asia/Jerusalem';
 const COLOR: Record<EventType, string> = { arrival: '#2f6fde', delivered: '#1e8a4c', departure: '#c76a0a' };
+// Customer / depot markers (brand navy) and the GPS track line, shared by the map and the legend.
+const CUSTOMER_COLOR = '#043d5c';
+const TRACK_COLOR = '#8d8a83';
 const TILE_SOURCES: [string, string][] = [
   ['https://tile.openstreetmap.org/{z}/{x}/{y}.png', '&copy; OpenStreetMap'],
   ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', 'Tiles &copy; Esri'],
 ];
+// Leaflet renders markers and tooltips outside React, so their classes are plain CSS.
+const MARKER_CSS =
+  `.dm-num{display:flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${CUSTOMER_COLOR};color:#fff;font:700 11px/1 system-ui,sans-serif;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.4)}` +
+  `.dm-depot{width:18px;height:18px;border-radius:4px;background:${CUSTOMER_COLOR};border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.4)}`;
+
+const TH = 'h-10 whitespace-nowrap px-3 text-start text-[13px] font-medium text-ink-muted';
+const TD = 'px-3 py-2.5 align-top';
 
 type RouteItem = { routeId: string; driverName: string; vehicle: string; reported: boolean };
 
 const escHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 
-export default function DriverMap({ sessionDate, onDateChange }: { sessionDate: string; onDateChange: (d: string) => void }) {
+// onDateChange is still passed by AppShell; the date itself is now picked in the top bar.
+export default function DriverMap({ sessionDate, onDateChange: _onDateChange }: { sessionDate: string; onDateChange: (d: string) => void }) {
   const { language, isRTL } = useLanguage();
   const [routes, setRoutes] = useState<RouteItem[]>([]);
   const [routeId, setRouteId] = useState('');
@@ -39,7 +58,6 @@ export default function DriverMap({ sessionDate, onDateChange }: { sessionDate: 
   const hm = (ms: number) => fmt.format(ms);
   const dist = (m: number | null) => (m == null ? '' : m >= 1000 ? `${(Math.round(m / 100) / 10).toLocaleString()} ${t('map.km', language)}` : `${Math.round(m)} ${t('map.m', language)}`);
   const label = (type: EventType) => t(`map.${type}`, language);
-  const align = isRTL ? 'right' : 'left';
 
   // Routes of the day for the picker.
   useEffect(() => {
@@ -117,7 +135,7 @@ export default function DriverMap({ sessionDate, onDateChange }: { sessionDate: 
       const bounds: [number, number][] = [];
       if (data.track.length) {
         const pts = data.track.map((p) => [p[0], p[1]] as [number, number]);
-        L.polyline(pts, { color: '#8d8a83', weight: 3, opacity: 0.7 }).addTo(map);
+        L.polyline(pts, { color: TRACK_COLOR, weight: 3, opacity: 0.7 }).addTo(map);
         bounds.push(...pts);
       }
       if (data.depot.lat != null && data.depot.lon != null) {
@@ -130,7 +148,7 @@ export default function DriverMap({ sessionDate, onDateChange }: { sessionDate: 
         const group: [number, number][] = [];
         if (s.lat != null && s.lon != null) {
           L.marker([s.lat, s.lon], { icon: L.divIcon({ className: '', html: `<div class="dm-num">${s.sequence}</div>`, iconSize: [22, 22] }), zIndexOffset: 500 })
-            .bindTooltip(`<b>#${s.sequence} ${escHtml(s.customer)}</b>${s.city ? '<br>' + escHtml(s.city) : ''}`)
+            .bindTooltip(`<b>#${s.sequence} <span class="sensitive">${escHtml(s.customer)}</span></b>${s.city ? '<br>' + escHtml(s.city) : ''}`)
             .on('click', () => setSelected(i))
             .addTo(map);
           group.push([s.lat, s.lon]);
@@ -144,9 +162,9 @@ export default function DriverMap({ sessionDate, onDateChange }: { sessionDate: 
           }
           L.circleMarker([e.lat, e.lon], { radius: far ? 8 : 6, color: '#fff', weight: 2, fillColor: COLOR[e.type], fillOpacity: 1 })
             .bindTooltip(
-              `<b>${escHtml(label(e.type))} ${hm(e.time)}</b> · #${s.sequence} ${escHtml(s.customer)}` +
+              `<b>${escHtml(label(e.type))} ${hm(e.time)}</b> · #${s.sequence} <span class="sensitive">${escHtml(s.customer)}</span>` +
                 (e.orderId ? `<br>${escHtml(t('map.order', language))} ${escHtml(e.orderId)}` : '') +
-                (e.distanceM != null ? `<br><span style="color:${far ? '#b42318' : 'inherit'}">${escHtml(dist(e.distanceM))} ${escHtml(t('map.from_customer', language))}</span>` : '') +
+                (e.distanceM != null ? `<br><span style="color:${far ? 'var(--danger)' : 'inherit'}">${escHtml(dist(e.distanceM))} ${escHtml(t('map.from_customer', language))}</span>` : '') +
                 (e.gpsOffsetSec != null ? `<br><span style="opacity:.7">${escHtml(t('map.gps_off', language).replace('{s}', String(e.gpsOffsetSec)))}</span>` : '')
             )
             .on('click', () => setSelected(i))
@@ -181,15 +199,6 @@ export default function DriverMap({ sessionDate, onDateChange }: { sessionDate: 
     if (g && g.length) mapRef.current.fitBounds(g, { padding: [40, 40], maxZoom: 17 });
   }, [selected]);
 
-  const tile = (k: string, v: string, color?: string, sub?: string) => (
-    <div style={{ backgroundColor: 'var(--bg-card)', border: '1px solid var(--border-primary)', borderRadius: 8, padding: 16, textAlign: align }}>
-      <div style={{ color: 'var(--text-secondary)', fontSize: 12, marginBottom: 6 }}>{k}</div>
-      <div style={{ color: color || 'var(--text-primary)', fontSize: 26, fontWeight: 700, lineHeight: 1.1 }}>{v}</div>
-      {sub && <div style={{ color: 'var(--text-tertiary)', fontSize: 12, marginTop: 4 }}>{sub}</div>}
-    </div>
-  );
-
-  const card: React.CSSProperties = { backgroundColor: 'var(--bg-secondary)', borderRadius: 6, border: '1px solid var(--border-primary)', padding: 24, marginBottom: 24 };
   const S = data?.summary;
   const notes: string[] = [];
   if (data && !data.track.length) notes.push(t('map.no_track', language));
@@ -197,119 +206,176 @@ export default function DriverMap({ sessionDate, onDateChange }: { sessionDate: 
 
   const cell = (i: number, type: EventType) => {
     const evs = data!.stops[i].events.filter((e) => e.type === type);
-    if (!evs.length) return <td style={{ padding: 8, color: 'var(--text-tertiary)' }}>—</td>;
+    if (!evs.length) return <td className={cn(TD, 'text-ink-subtle')}>—</td>;
     return (
-      <td style={{ padding: 8, whiteSpace: 'nowrap' }}>
-        {evs.map((e, k) => (
-          <div key={k}>
-            <b>{hm(e.time)}</b>
-            {e.orderId && <span style={{ color: 'var(--text-tertiary)' }}> {e.orderId}</span>}
-            <br />
-            {e.distanceM == null ? (
-              <span style={{ color: 'var(--text-tertiary)' }}>{t('map.no_gps', language)}</span>
-            ) : (
-              <span style={{ color: e.distanceM > data!.farThresholdM ? '#dc2626' : 'var(--text-secondary)', fontWeight: e.distanceM > data!.farThresholdM ? 700 : 400 }}>
-                {dist(e.distanceM)} {t('map.from_customer', language)}
-              </span>
-            )}
-          </div>
-        ))}
+      <td className={cn(TD, 'whitespace-nowrap')}>
+        <div className="space-y-1.5">
+          {evs.map((e, k) => {
+            const far = e.distanceM != null && e.distanceM > data!.farThresholdM;
+            return (
+              <div key={k}>
+                <span className="font-semibold text-ink tabular">{hm(e.time)}</span>
+                {e.orderId && <span className="ms-1.5 text-xs text-ink-subtle tabular">{e.orderId}</span>}
+                <div className="text-xs">
+                  {e.distanceM == null ? (
+                    <span className="text-ink-subtle">{t('map.no_gps', language)}</span>
+                  ) : (
+                    <span className={far ? 'font-semibold text-danger' : 'text-ink-muted'}>
+                      {dist(e.distanceM)} {t('map.from_customer', language)}
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </td>
     );
   };
 
+  const legendDot = (color: string, text: string) => (
+    <span className="inline-flex items-center gap-1.5">
+      <span className="size-2.5 shrink-0 rounded-full ring-1 ring-surface" style={{ backgroundColor: color }} aria-hidden />
+      {text}
+    </span>
+  );
+
   return (
-    <div>
-      <style>{`.dm-num{display:flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:#1f1e1b;color:#fff;font:700 11px/1 system-ui,sans-serif;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.4)}.dm-depot{width:18px;height:18px;border-radius:4px;background:#1f1e1b;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.4)}.leaflet-tooltip{direction:${isRTL ? 'rtl' : 'ltr'};text-align:${align}}`}</style>
-      <div style={card}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', marginBottom: 16 }}>
-          <h2 style={{ fontSize: 20, fontWeight: 600, color: 'var(--text-primary)', margin: 0 }}>{t('map.title', language)}</h2>
-          <span style={{ flex: 1 }} />
-          <label style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
-            {t('map.date', language)}{' '}
-            <DateInput value={sessionDate} onChange={onDateChange} style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border-primary)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }} />
-          </label>
-          <label style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
-            {t('map.route', language)}{' '}
-            <select value={routeId} onChange={(e) => setRouteId(e.target.value)} style={{ padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border-primary)', background: 'var(--bg-primary)', color: 'var(--text-primary)', minWidth: 200 }}>
-              <option value="">{t('map.choose', language)}</option>
-              {routes.map((r) => (
-                <option key={r.routeId} value={r.routeId}>
-                  {r.routeId} · {r.driverName}
-                  {r.reported ? '' : ` (${t('map.not_reported', language)})`}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button onClick={load} disabled={loading || !routeId} style={{ padding: '7px 14px', borderRadius: 6, border: '1px solid var(--border-primary)', background: 'transparent', color: 'var(--text-primary)', cursor: 'pointer' }}>
-            {loading ? t('pva.refreshing', language) : t('pva.refresh', language)}
-          </button>
-        </div>
-        {error && <div style={{ color: '#dc2626', marginBottom: 12 }}>{error}</div>}
-        {!routeId && !error && <div style={{ color: 'var(--text-secondary)' }}>{t('map.choose_hint', language)}</div>}
-        {loading && !data && <div style={{ color: 'var(--text-secondary)' }}>{t('map.loading', language)}</div>}
-        {data && S && (
-          <>
-            <div style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 12, textAlign: align }}>
-              {t('map.route', language)} {data.routeId} · {data.driverName}
+    <div className="space-y-5">
+      <style>{`${MARKER_CSS}.leaflet-tooltip{direction:${isRTL ? 'rtl' : 'ltr'};text-align:${isRTL ? 'right' : 'left'}}`}</style>
+
+      <PageHeader
+        title={t('map.title', language)}
+        subtitle={
+          data ? (
+            <>
+              {t('map.route', language)} <span className="tabular">{data.routeId}</span> · <span className="sensitive">{data.driverName}</span>
               {data.vehicle ? ` · ${data.vehicle}` : ''}
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 16 }}>
-              {tile(t('map.events', language), String(S.events))}
-              {tile(t('map.with_gps', language), `${S.withGps}/${S.events}`)}
-              {tile(t('map.far', language), String(S.far), S.far ? '#dc2626' : '#16a34a', t('map.far_sub', language).replace('{m}', String(data.farThresholdM)))}
-            </div>
-            {notes.map((n) => (
-              <div key={n} style={{ background: 'var(--bg-card)', border: '1px solid var(--border-primary)', borderRadius: 6, padding: '8px 12px', marginBottom: 8, color: 'var(--text-secondary)', fontSize: 13 }}>
-                ℹ️ {n}
-              </div>
-            ))}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 14, fontSize: 12, color: 'var(--text-secondary)', margin: '8px 0' }}>
-              {(['arrival', 'departure'] as EventType[]).map((k) => (
-                <span key={k}>
-                  <i style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: COLOR[k], marginInlineEnd: 5 }} />
-                  {label(k)}
-                </span>
-              ))}
-              <span>
-                <i style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: '#1f1e1b', marginInlineEnd: 5 }} />
-                {t('map.customer', language)}
-              </span>
-              <span>
-                <i style={{ display: 'inline-block', width: 14, height: 3, background: '#8d8a83', marginInlineEnd: 5, verticalAlign: 'middle' }} />
-                {t('map.track', language)}
-              </span>
-            </div>
+            </>
+          ) : sessionDate ? (
+            formatLongDate(sessionDate, LOCALE[language])
+          ) : undefined
+        }
+        actions={
+          <>
+            <label className="flex items-center gap-2 text-[13px] text-ink-muted">
+              {t('map.route', language)}
+              <select
+                value={routeId}
+                onChange={(e) => setRouteId(e.target.value)}
+                className="h-9 min-w-[220px] max-w-full rounded border border-line bg-surface px-2.5 text-[13px] text-ink shadow-sm hover:border-line-strong focus:border-accent focus:outline-none focus:ring-2 focus:ring-focus"
+              >
+                <option value="">{t('map.choose', language)}</option>
+                {routes.map((r) => (
+                  <option key={r.routeId} value={r.routeId}>
+                    {r.routeId} · {r.driverName}
+                    {r.reported ? '' : ` (${t('map.not_reported', language)})`}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <IconButton
+              variant="secondary"
+              label={loading ? t('pva.refreshing', language) : t('pva.refresh', language)}
+              icon={<RefreshCw className={loading ? 'animate-spin' : undefined} />}
+              onClick={load}
+              disabled={loading || !routeId}
+            />
           </>
+        }
+      />
+
+      {error && <Alert tone="danger">{error}</Alert>}
+
+      {!routeId && !error && (
+        <Card>
+          <EmptyState icon={<MapPinned />} title={t('map.choose', language)} hint={t('map.choose_hint', language)} />
+        </Card>
+      )}
+
+      {loading && !data && (
+        <div className="space-y-5" role="status" aria-label={t('map.loading', language)}>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {Array.from({ length: 3 }, (_, i) => (
+              <Skeleton key={i} className="h-[92px] rounded-lg" />
+            ))}
+          </div>
+          <Skeleton className="h-[480px] rounded-lg" />
+          <span className="sr-only">{t('map.loading', language)}</span>
+        </div>
+      )}
+
+      {data && S && (
+        <>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <Stat label={t('map.events', language)} icon={<Navigation />} value={String(S.events)} />
+            <Stat label={t('map.with_gps', language)} icon={<Satellite />} value={`${S.withGps}/${S.events}`} />
+            <Stat
+              label={t('map.far', language)}
+              icon={<MapPin />}
+              value={String(S.far)}
+              tone={S.far ? 'danger' : 'success'}
+              hint={t('map.far_sub', language).replace('{m}', String(data.farThresholdM))}
+            />
+          </div>
+          {notes.map((n) => (
+            <Alert key={n} tone="info">
+              {n}
+            </Alert>
+          ))}
+        </>
+      )}
+
+      {/* The map element stays mounted so Leaflet always has its container; it has no height until there is data. */}
+      <Card className={cn(!data && 'hidden')}>
+        {data && (
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 border-b border-line px-4 py-2.5 text-xs text-ink-muted">
+            {(['arrival', 'departure'] as EventType[]).map((k) => (
+              <span key={k}>{legendDot(COLOR[k], label(k))}</span>
+            ))}
+            {legendDot(CUSTOMER_COLOR, t('map.customer', language))}
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-[3px] w-3.5 shrink-0 rounded-full" style={{ backgroundColor: TRACK_COLOR }} aria-hidden />
+              {t('map.track', language)}
+            </span>
+          </div>
         )}
-        <div ref={mapEl} style={{ height: data ? 480 : 0, borderRadius: 8, border: data ? '1px solid var(--border-primary)' : 'none', direction: 'ltr', overflow: 'hidden' }} />
-        {tilesFailed && <div style={{ color: 'var(--text-tertiary)', fontSize: 12, marginTop: 6 }}>{t('map.tiles_failed', language)}</div>}
-      </div>
+        <div className="p-3">
+          <div ref={mapEl} dir="ltr" className={cn('overflow-hidden rounded', data && 'border border-line')} style={{ height: data ? 480 : 0 }} />
+          {tilesFailed && <p className="mt-2 text-xs text-ink-subtle">{t('map.tiles_failed', language)}</p>}
+        </div>
+      </Card>
 
       {data && (
-        <div style={card}>
-          <h3 style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-primary)', marginTop: 0, textAlign: align }}>{t('map.list', language)}</h3>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, color: 'var(--text-primary)' }}>
+        <Card className="overflow-hidden">
+          <CardHeader title={t('map.list', language)} count={data.stops.length} />
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-sm">
               <thead>
-                <tr style={{ color: 'var(--text-secondary)', textAlign: align }}>
-                  <th style={{ padding: 8, textAlign: align }}>#</th>
-                  <th style={{ padding: 8, textAlign: align }}>{t('map.customer_col', language)}</th>
-                  <th style={{ padding: 8, textAlign: align }}>{label('arrival')}</th>
-                  <th style={{ padding: 8, textAlign: align }}>{label('departure')}</th>
+                <tr className="border-b border-line bg-surface-muted">
+                  <th scope="col" className={TH}>#</th>
+                  <th scope="col" className={TH}>{t('map.customer_col', language)}</th>
+                  <th scope="col" className={TH}>{label('arrival')}</th>
+                  <th scope="col" className={TH}>{label('departure')}</th>
                 </tr>
               </thead>
               <tbody>
                 {data.stops.map((s, i) => (
                   <tr
                     key={i}
+                    tabIndex={0}
                     onClick={() => setSelected(i)}
-                    style={{ borderTop: '1px solid var(--border-primary)', cursor: 'pointer', background: selected === i ? 'rgba(47,111,222,.12)' : undefined, textAlign: align }}
+                    onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), setSelected(i))}
+                    aria-selected={selected === i}
+                    className={cn(
+                      'cursor-pointer border-b border-line last:border-0 focus-visible:bg-surface-selected focus-visible:outline-none',
+                      selected === i ? 'bg-surface-selected' : 'hover:bg-surface-hover'
+                    )}
                   >
-                    <td style={{ padding: 8 }}>{s.sequence}</td>
-                    <td style={{ padding: 8, minWidth: 180 }}>
-                      {s.customer}
-                      {s.city && <div style={{ color: 'var(--text-tertiary)', fontSize: 12 }}>{s.city}</div>}
+                    <td className={cn(TD, 'font-semibold text-ink tabular')}>{s.sequence}</td>
+                    <td className={cn(TD, 'min-w-[180px] text-ink')}>
+                      <span className="sensitive">{s.customer}</span>
+                      {s.city && <div className="text-xs text-ink-subtle">{s.city}</div>}
                     </td>
                     {cell(i, 'arrival')}
                     {cell(i, 'departure')}
@@ -318,8 +384,8 @@ export default function DriverMap({ sessionDate, onDateChange }: { sessionDate: 
               </tbody>
             </table>
           </div>
-          <div style={{ color: 'var(--text-tertiary)', fontSize: 12, marginTop: 10, textAlign: align }}>{t('map.foot', language)}</div>
-        </div>
+          <p className="border-t border-line px-4 py-3 text-xs text-ink-subtle">{t('map.foot', language)}</p>
+        </Card>
       )}
     </div>
   );
